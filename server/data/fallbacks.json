@@ -1,0 +1,59 @@
+{
+  "gym": [{
+    "regretScore": 55,
+    "scoreLabel": "Questionable Choices",
+    "outcomes": {
+      "day1": "You feel rested. Suspiciously rested.",
+      "week1": "You've missed three now. The gym doesn't even text anymore.",
+      "month1": "You've started calling it 'active rest month'.",
+      "year1": "You refer to your gym phase as 'a different era'."
+    },
+    "moodData": [
+      { "label": "Now", "vibes": 80 },
+      { "label": "1 Week", "vibes": 65 },
+      { "label": "1 Month", "vibes": 45 },
+      { "label": "6 Months", "vibes": 30 },
+      { "label": "1 Year", "vibes": 25 }
+    ],
+    "roastText": "Your gym bag has started collecting dust as a personality trait.",
+    "category": "gym"
+  }],
+  "relationship": [{
+    "regretScore": 78,
+    "scoreLabel": "Self-Sabotage Arc",
+    "outcomes": {
+      "day1": "Sent. The delivered tick just spiked your cortisol.",
+      "week1": "You are now in an undefined situationship with no exit strategy.",
+      "month1": "Your friends have stopped asking. They know.",
+      "year1": "This text defined an era. An era with a name."
+    },
+    "moodData": [
+      { "label": "Now", "vibes": 70 },
+      { "label": "1 Week", "vibes": 55 },
+      { "label": "1 Month", "vibes": 40 },
+      { "label": "6 Months", "vibes": 35 },
+      { "label": "1 Year", "vibes": 30 }
+    ],
+    "roastText": "Your phone's autocorrect tried to save you. You overrode it manually.",
+    "category": "relationship"
+  }],
+  "default": {
+    "regretScore": 69,
+    "scoreLabel": "Questionable Choices",
+    "roastText": "We couldn't simulate your regret — which honestly might be for the best. Some things are better left unknown.",
+    "outcomes": {
+      "day1": "You proceed with the decision, blissfully unaware.",
+      "week1": "Reality starts to set in. Slowly.",
+      "month1": "You've entered the bargaining phase.",
+      "year1": "You tell people it was a 'learning experience'."
+    },
+    "moodData": [
+      { "label": "Now", "vibes": 75 },
+      { "label": "1 Week", "vibes": 55 },
+      { "label": "1 Month", "vibes": 40 },
+      { "label": "6 Months", "vibes": 35 },
+      { "label": "1 Year", "vibes": 50 }
+    ],
+    "category": "other"
+  }
+}

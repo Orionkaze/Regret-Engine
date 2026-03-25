@@ -1,0 +1,1181 @@
+# Regret Engine — Tech Rules & Stack Definition
+> Feed this to your AI coding tool alongside the PRD and Design Doc.
+> These are the rules. Follow them exactly. Don't improvise the stack.
+
+---
+
+## 0. STACK AT A GLANCE
+
+```
+Frontend:   React 18 + TypeScript + Tailwind CSS + Vite
+Backend:    Node.js 20 + Express + TypeScript
+Database:   Supabase (PostgreSQL)
+Auth:       Supabase Auth (built-in)
+AI:         Groq API (llama-3.3-70b-versatile)
+Charts:     Recharts
+State:      Zustand
+Hosting:    Vercel (frontend) + Railway (backend)
+Package mgr: pnpm (not npm, not yarn)
+```
+
+---
+
+## 1. FOLDER STRUCTURE & FILE CONVENTIONS
+
+### 1.1 Root Structure
+
+```
+regret-engine/
+├── client/              # React frontend (Vite)
+├── server/              # Express backend
+├── supabase/            # DB schema + migrations
+├── .github/
+│   └── workflows/       # CI/CD (optional)
+├── .gitignore
+├── README.md
+└── pnpm-workspace.yaml  # monorepo workspace config
+```
+
+### 1.2 Client Structure
+
+```
+client/
+├── public/
+│   └── favicon.ico
+├── src/
+│   ├── components/          # Reusable UI components
+│   │   ├── ui/              # Primitive components (Button, Badge, Card, Input)
+│   │   ├── DecisionInput.tsx
+│   │   ├── PersonalityToggle.tsx
+│   │   ├── OutcomeCard.tsx
+│   │   ├── RegretScore.tsx
+│   │   ├── MoodGraph.tsx
+│   │   ├── LeaderboardFeed.tsx
+│   │   ├── LeaderboardCard.tsx
+│   │   ├── MemeCard.tsx
+│   │   └── SkeletonCard.tsx
+│   ├── pages/               # Route-level page components
+│   │   ├── Home.tsx
+│   │   ├── Result.tsx
+│   │   ├── Leaderboard.tsx
+│   │   └── Profile.tsx
+│   ├── store/
+│   │   └── useAppStore.ts   # Single Zustand store
+│   ├── lib/
+│   │   ├── supabase.ts      # Supabase client init
+│   │   ├── api.ts           # All fetch calls to Express backend
+│   │   └── utils.ts         # Shared utilities (score color, formatDate, etc.)
+│   ├── hooks/               # Custom React hooks
+│   │   ├── useAuth.ts
+│   │   └── useSimulate.ts
+│   ├── types/
+│   │   └── index.ts         # All shared TypeScript types/interfaces
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── index.css            # Tailwind base imports only
+├── .env
+├── .env.example
+├── index.html
+├── tailwind.config.js
+├── tsconfig.json
+└── vite.config.ts
+```
+
+### 1.3 Server Structure
+
+```
+server/
+├── src/
+│   ├── routes/
+│   │   ├── simulate.ts      # POST /api/simulate
+│   │   ├── leaderboard.ts   # GET/POST /api/leaderboard
+│   │   └── user.ts          # GET /api/user/stats
+│   ├── services/
+│   │   ├── groq.ts          # All Groq API logic
+│   │   └── supabase.ts      # Supabase server client + DB helpers
+│   ├── middleware/
+│   │   ├── auth.ts          # Clerk JWT verification middleware
+│   │   └── rateLimit.ts     # Rate limiting middleware
+│   ├── data/
+│   │   └── fallbacks.json   # Pre-written fallback AI responses
+│   ├── lib/
+│   │   └── utils.ts         # Server utilities (normalizeDecision, etc.)
+│   └── index.ts             # Express app entry point
+├── .env
+├── .env.example
+├── tsconfig.json
+└── package.json
+```
+
+### 1.4 File Naming Conventions
+
+| Type | Convention | Example |
+|---|---|---|
+| React components | PascalCase `.tsx` | `DecisionInput.tsx` |
+| Hooks | camelCase, prefix `use` | `useSimulate.ts` |
+| Utilities | camelCase `.ts` | `utils.ts` |
+| Types file | `index.ts` inside `types/` | `types/index.ts` |
+| Constants | `SCREAMING_SNAKE_CASE` for values | `MAX_DAILY_SUBMISSIONS = 3` |
+| CSS classes | Tailwind only — no custom class names except in `index.css` for base resets |
+| Route files | camelCase matching the route | `leaderboard.ts` for `/api/leaderboard` |
+
+### 1.5 Component File Structure
+
+Every component file follows this order:
+
+```tsx
+// 1. Imports (external first, internal second)
+import { useState } from 'react'
+import { supabase } from '@/lib/supabase'
+
+// 2. Types/interfaces local to this file
+interface Props { ... }
+
+// 3. Constants local to this file
+const MESSAGES = [...]
+
+// 4. Component (named export, not default)
+export function DecisionInput({ onSubmit }: Props) {
+  // hooks first
+  // derived state
+  // handlers
+  // return JSX
+}
+```
+
+**Rules:**
+- Named exports only — no `export default` on components
+- One component per file — no multi-component files
+- Props interface always called `Props` (not `DecisionInputProps`)
+- Keep components under 200 lines — split into sub-components if longer
+
+---
+
+## 2. CODING STANDARDS & RULES
+
+### 2.1 TypeScript Rules
+
+```
+- Strict mode ON — tsconfig: "strict": true
+- No `any` — ever. Use `unknown` and narrow it.
+- No non-null assertions (!) unless absolutely unavoidable with a comment explaining why
+- All function parameters and return types must be explicitly typed
+- Use `interface` for object shapes, `type` for unions/aliases
+- Enums: use `as const` objects instead of TypeScript enums
+```
+
+```ts
+// WRONG
+const mode: any = getMode()
+const user = data!.user
+
+// RIGHT
+const mode: SimulationMode = getMode()
+const user = data?.user ?? null
+```
+
+### 2.2 React Rules
+
+```
+- Functional components only — no class components
+- Named exports only — no default exports on components
+- useEffect dependencies must be complete — no eslint-disable comments to hide warnings
+- Never mutate state directly — always use setter functions
+- No inline functions in JSX that do heavy work — extract to named handlers
+- Keys in lists: always use stable unique IDs, never array index
+- Avoid prop drilling beyond 2 levels — use Zustand store instead
+```
+
+```tsx
+// WRONG
+{decisions.map((d, index) => <Card key={index} ... />)}
+
+// RIGHT
+{decisions.map((d) => <Card key={d.id} ... />)}
+```
+
+### 2.3 Async / Data Fetching Rules
+
+```
+- All async operations: always use try/catch — never let promises go unhandled
+- Loading states: always track with boolean, show skeleton UI
+- Error states: always handle, show user-friendly message (not raw error)
+- Never fetch in useEffect without cleanup or AbortController
+- All API calls go through lib/api.ts — no raw fetch() calls in components
+```
+
+```ts
+// WRONG — fetch inside component
+useEffect(() => {
+  fetch('/api/simulate').then(r => r.json()).then(setData)
+}, [])
+
+// RIGHT — use the api lib + proper state
+const { data, loading, error } = useSimulate()
+```
+
+### 2.4 Import Rules
+
+```
+- Use path aliases — never relative `../../` hell
+- Alias: @/ maps to client/src/
+- External imports before internal imports, blank line between
+- Destructure named imports — no namespace imports (import * as X)
+```
+
+```ts
+// WRONG
+import { something } from '../../../lib/utils'
+import * as Recharts from 'recharts'
+
+// RIGHT
+import { LineChart, Line } from 'recharts'
+import { getScoreColor } from '@/lib/utils'
+```
+
+Configure in `vite.config.ts` and `tsconfig.json`:
+```ts
+// vite.config.ts
+resolve: { alias: { '@': path.resolve(__dirname, './src') } }
+
+// tsconfig.json
+"paths": { "@/*": ["./src/*"] }
+```
+
+### 2.5 Styling Rules
+
+```
+- Tailwind utility classes only — no inline style={{ }} unless for dynamic values (e.g. SVG coordinates)
+- No separate CSS files per component — index.css is for base resets only
+- Use custom Tailwind tokens from tailwind.config.js (e.g. bg-bg-primary, not bg-[#0F0E17])
+- No !important
+- No styled-components, no CSS modules, no emotion
+- Dynamic classes: use clsx or cn() helper — never string template literals
+```
+
+```tsx
+// WRONG
+<div style={{ background: '#0F0E17' }}>
+<div className={`card ${isActive ? 'active' : ''}`}>
+
+// RIGHT
+<div className="bg-bg-primary">
+<div className={cn('card', isActive && 'ring-2 ring-accent-purple')}>
+```
+
+Install `clsx` + `tailwind-merge`, create a `cn()` helper in `lib/utils.ts`:
+```ts
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+### 2.6 Naming Conventions
+
+| Thing | Convention |
+|---|---|
+| Variables | `camelCase` |
+| Functions | `camelCase` |
+| Components | `PascalCase` |
+| Types/Interfaces | `PascalCase` |
+| Constants | `SCREAMING_SNAKE_CASE` |
+| Zustand store fields | `camelCase` |
+| Database columns | `snake_case` (Supabase/PostgreSQL standard) |
+| API endpoints | `kebab-case` e.g. `/api/user-stats` |
+| Env variables | `SCREAMING_SNAKE_CASE` |
+
+### 2.7 Comments & Documentation
+
+```
+- Only comment WHY, not WHAT — the code shows what, comments explain why
+- All exported functions must have a JSDoc comment
+- No commented-out code in commits — delete it
+- TODO comments: format as // TODO(yourname): description
+```
+
+```ts
+// WRONG
+// loop through decisions
+decisions.forEach(d => process(d))
+
+// RIGHT — no comment needed, code is self-explanatory
+decisions.forEach(processDecision)
+
+// RIGHT — comment explains WHY
+// Normalize before cache lookup to catch "Skip Gym" and "skip gym" as the same key
+const cacheKey = normalizeDecision(decision) + ':' + mode
+```
+
+---
+
+## 3. PACKAGE & DEPENDENCY RULES
+
+### 3.1 Package Manager
+
+**Use pnpm exclusively.** Not npm. Not yarn.
+
+```bash
+# Install pnpm
+npm install -g pnpm
+
+# Install dependencies
+pnpm install
+
+# Add a package
+pnpm add <package>
+pnpm add -D <package>  # dev dependency
+
+# Run scripts
+pnpm dev
+pnpm build
+```
+
+### 3.2 Approved Packages — Client
+
+```
+# Core
+react@18
+react-dom@18
+typescript@5
+vite@5
+
+# Routing
+react-router-dom@6
+
+# State
+zustand@4
+
+# Styling
+tailwindcss@3
+clsx
+tailwind-merge
+
+# Supabase
+@supabase/supabase-js@2
+
+# Charts
+recharts@2
+
+# Utilities
+date-fns            # date formatting only — no moment.js
+html-to-image       # for meme card generation (Phase 2)
+```
+
+### 3.3 Approved Packages — Server
+
+```
+# Core
+express@4
+typescript@5
+tsx                 # run TypeScript directly in dev
+
+# Supabase
+@supabase/supabase-js@2
+
+# AI
+groq-sdk
+
+# Middleware
+cors
+helmet              # security headers
+express-rate-limit  # rate limiting
+
+# Utilities
+dotenv
+```
+
+### 3.4 Banned Packages — Do Not Install
+
+```
+❌ axios          — use native fetch() instead
+❌ moment         — use date-fns
+❌ lodash         — use native JS methods
+❌ jquery         — obviously
+❌ styled-components — use Tailwind
+❌ @emotion/*    — use Tailwind
+❌ css-modules   — use Tailwind
+❌ mongoose      — using Supabase, not MongoDB
+❌ openai        — using groq-sdk instead
+❌ redux         — use Zustand
+❌ react-query   — keep it simple for MVP, handle manually
+❌ next          — this is Vite + Express, not Next.js
+```
+
+### 3.5 Dependency Rules
+
+```
+- Lock file (pnpm-lock.yaml) is always committed
+- Never commit node_modules
+- No floating versions in package.json — always pin with exact or ^ range
+- Before adding a new package: check if it can be done with native JS first
+- No packages with known security vulnerabilities (pnpm audit before shipping)
+- Keep dependencies minimal — every package is a liability
+```
+
+---
+
+## 4. ENVIRONMENT & CONFIG SETUP
+
+### 4.1 Environment Files
+
+```
+# client/.env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_API_URL=http://localhost:3001
+
+# server/.env
+GROQ_API_KEY=your-groq-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-role-key
+CLIENT_URL=http://localhost:5173
+PORT=3001
+NODE_ENV=development
+```
+
+### 4.2 Environment Rules
+
+```
+- NEVER commit .env files — always in .gitignore
+- ALWAYS commit .env.example with placeholder values + comments
+- Client env vars MUST start with VITE_ or Vite won't expose them
+- SUPABASE_SERVICE_KEY is server-only — never expose to client (it bypasses RLS)
+- VITE_SUPABASE_ANON_KEY is safe to expose — it respects RLS policies
+- Groq API key is server-only — never call Groq from the frontend
+- All env vars must be documented in .env.example with a comment explaining what they are
+```
+
+### 4.3 .env.example (commit this)
+
+```env
+# client/.env.example
+
+# Supabase project URL (found in Supabase Dashboard → Settings → API)
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+
+# Supabase anon/public key — safe to expose to client, respects Row Level Security
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+
+# Express backend URL
+VITE_API_URL=http://localhost:3001
+```
+
+```env
+# server/.env.example
+
+# Groq API key — get free at console.groq.com (no credit card needed)
+GROQ_API_KEY=gsk_your_key_here
+
+# Supabase project URL
+SUPABASE_URL=https://your-project-id.supabase.co
+
+# Supabase service role key — SERVER ONLY. Never expose to frontend. Bypasses RLS.
+SUPABASE_SERVICE_KEY=your-service-role-key-here
+
+# Allowed frontend origin for CORS
+CLIENT_URL=http://localhost:5173
+
+# Server port
+PORT=3001
+
+# Environment
+NODE_ENV=development
+```
+
+### 4.4 Vite Config
+
+```ts
+// client/vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') }
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+```
+
+### 4.5 TypeScript Config
+
+```json
+// tsconfig.json (client)
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src"]
+}
+```
+
+```json
+// tsconfig.json (server)
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "esModuleInterop": true
+  },
+  "include": ["src"]
+}
+```
+
+---
+
+## 5. GIT & BRANCHING RULES
+
+### 5.1 Branch Strategy
+
+```
+main          — production-ready code only. Never commit directly.
+dev           — integration branch. All features merge here first.
+feature/*     — individual feature branches. Branch from dev.
+fix/*         — bug fix branches. Branch from dev.
+hotfix/*      — urgent production fixes. Branch from main.
+```
+
+```bash
+# Start a new feature
+git checkout dev
+git pull origin dev
+git checkout -b feature/decision-simulator
+
+# Finish a feature
+git checkout dev
+git merge feature/decision-simulator
+git branch -d feature/decision-simulator
+```
+
+### 5.2 Commit Message Format
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <short description>
+
+Types:
+  feat     — new feature
+  fix      — bug fix
+  chore    — config, deps, tooling
+  style    — formatting, no logic change
+  refactor — restructure without behavior change
+  docs     — documentation only
+  test     — adding or fixing tests
+
+Examples:
+  feat(simulator): add Groq integration with fallback responses
+  fix(leaderboard): correct pagination offset for weekly tab
+  chore(deps): upgrade groq-sdk to 0.5.0
+  style(DecisionInput): apply Tailwind tokens to pill buttons
+  refactor(api): extract normalizeDecision to utils
+```
+
+### 5.3 Commit Rules
+
+```
+- Commits must be atomic — one logical change per commit
+- Never commit broken code to dev or main
+- Never commit .env files, node_modules, or build artifacts
+- Always pull latest dev before creating a feature branch
+- Write commit messages in present tense: "add feature" not "added feature"
+- No WIP commits to dev or main — squash locally first
+```
+
+### 5.4 .gitignore
+
+```gitignore
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+```
+
+---
+
+## 6. ERROR HANDLING PATTERNS
+
+### 6.1 The Golden Rule
+
+**Every async operation must have a try/catch. Every error must result in a user-visible state or a logged server error. No silent failures.**
+
+### 6.2 Client-Side Error Pattern
+
+```ts
+// Standard pattern for all API calls
+const [data, setData] = useState<SimulationResult | null>(null)
+const [loading, setLoading] = useState(false)
+const [error, setError] = useState<string | null>(null)
+
+async function handleSubmit(decision: string, mode: SimulationMode) {
+  setLoading(true)
+  setError(null)
+
+  try {
+    const result = await api.simulate(decision, mode)
+    setData(result)
+  } catch (err) {
+    // Never show raw error messages to users
+    setError('Something went wrong. Please try again.')
+    // Log the real error for debugging
+    console.error('[handleSubmit]', err)
+  } finally {
+    setLoading(false)
+  }
+}
+```
+
+### 6.3 Server-Side Error Pattern
+
+All Express routes use this structure:
+
+```ts
+// routes/simulate.ts
+router.post('/simulate', async (req, res) => {
+  try {
+    const { decision, mode } = req.body
+
+    // Validate input
+    if (!decision || typeof decision !== 'string') {
+      return res.status(400).json({ error: 'decision is required and must be a string' })
+    }
+    if (!['savage', 'motivational', 'reality'].includes(mode)) {
+      return res.status(400).json({ error: 'mode must be savage, motivational, or reality' })
+    }
+
+    const result = await generateRegretResponse(decision, mode, 0)
+    return res.status(200).json(result)
+
+  } catch (err) {
+    console.error('[POST /api/simulate]', err)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
+```
+
+### 6.4 Groq Error Handling
+
+```ts
+// services/groq.ts
+export async function generateRegretResponse(
+  decision: string,
+  mode: SimulationMode,
+  repeatCount: number
+): Promise<SimulationResult> {
+  try {
+    const completion = await groq.chat.completions.create({ ... })
+    const raw = completion.choices[0].message.content ?? ''
+
+    // Strip markdown fences — Llama sometimes adds them despite instructions
+    const cleaned = raw.replace(/```json|```/g, '').trim()
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch {
+      console.error('[groq] JSON parse failed, raw response:', raw)
+      throw new Error('Invalid JSON from Groq')
+    }
+
+    // Validate shape before trusting it
+    if (!isValidSimulationResult(parsed)) {
+      console.error('[groq] Invalid shape:', parsed)
+      throw new Error('Unexpected response shape from Groq')
+    }
+
+    return parsed
+
+  } catch (err) {
+    // Log the error but don't crash — use fallback
+    console.error('[groq] Falling back to pre-written response:', err)
+    return getFallbackResponse(mode)
+  }
+}
+
+// Type guard for validation
+function isValidSimulationResult(data: unknown): data is SimulationResult {
+  if (typeof data !== 'object' || data === null) return false
+  const d = data as Record<string, unknown>
+  return (
+    typeof d.timeline === 'object' &&
+    Array.isArray(d.moodData) &&
+    d.moodData.length === 5 &&
+    typeof d.regretScore === 'number' &&
+    d.regretScore >= 0 &&
+    d.regretScore <= 100 &&
+    typeof d.aiRoast === 'string' &&
+    typeof d.category === 'string'
+  )
+}
+```
+
+### 6.5 Supabase Error Handling
+
+```ts
+// Always destructure { data, error } from Supabase calls
+const { data, error } = await supabase
+  .from('decisions')
+  .insert({ ... })
+  .select()
+  .single()
+
+if (error) {
+  console.error('[supabase] insert decision failed:', error.message)
+  throw new Error('Failed to save decision')
+}
+
+return data
+```
+
+### 6.6 Error Response Format
+
+All API errors return this shape:
+
+```ts
+// Error response
+{ "error": "Human-readable message describing what went wrong" }
+
+// Never expose:
+// - Stack traces
+// - Internal error messages from Groq/Supabase
+// - SQL error details
+// - File paths or internal architecture
+```
+
+### 6.7 HTTP Status Codes — Use These Correctly
+
+```
+200 OK              — success, returns data
+201 Created         — success, resource created (POST that creates)
+400 Bad Request     — invalid input from client (missing field, wrong type)
+401 Unauthorized    — not authenticated (no valid token)
+403 Forbidden       — authenticated but not allowed (e.g. accessing another user's data)
+404 Not Found       — resource doesn't exist
+429 Too Many Req.   — rate limit hit
+500 Internal Error  — unexpected server error (never expose details)
+```
+
+---
+
+## 7. API & DATABASE CONVENTIONS
+
+### 7.1 API Design Rules
+
+```
+- All routes prefixed with /api/
+- Use nouns not verbs in route paths
+- Use HTTP methods correctly (GET=read, POST=create, PATCH=update, DELETE=delete)
+- Request bodies: always JSON (Content-Type: application/json)
+- Always validate request body before using it
+- Always return consistent response shapes (see below)
+- No sensitive data in query strings (tokens, passwords, keys)
+```
+
+### 7.2 Response Shapes
+
+**Success:**
+```ts
+// Single resource
+{ "data": { ... } }
+
+// List of resources
+{ "data": [...], "count": number, "page": number }
+
+// Action with no return data
+{ "success": true }
+```
+
+**Error:**
+```ts
+{ "error": "Human-readable description" }
+```
+
+### 7.3 Request Validation
+
+Validate all incoming request bodies before using them:
+
+```ts
+// Simple manual validation (no extra library needed for MVP)
+function validateSimulateBody(body: unknown): { decision: string; mode: SimulationMode } {
+  if (typeof body !== 'object' || body === null) {
+    throw new ValidationError('Request body must be a JSON object')
+  }
+
+  const { decision, mode } = body as Record<string, unknown>
+
+  if (!decision || typeof decision !== 'string' || decision.trim().length === 0) {
+    throw new ValidationError('decision must be a non-empty string')
+  }
+
+  if (!['savage', 'motivational', 'reality'].includes(mode as string)) {
+    throw new ValidationError('mode must be savage, motivational, or reality')
+  }
+
+  if (decision.trim().length > 500) {
+    throw new ValidationError('decision must be under 500 characters')
+  }
+
+  return { decision: decision.trim(), mode: mode as SimulationMode }
+}
+```
+
+### 7.4 Authentication Middleware
+
+```ts
+// middleware/auth.ts
+import { createClient } from '@supabase/supabase-js'
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authorization token required' })
+  }
+
+  try {
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_KEY!
+    )
+
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token' })
+    }
+
+    req.user = user  // attach to request for downstream use
+    next()
+  } catch {
+    return res.status(401).json({ error: 'Token verification failed' })
+  }
+}
+
+// Usage on protected routes
+router.post('/leaderboard/submit', requireAuth, async (req, res) => { ... })
+```
+
+### 7.5 Rate Limiting
+
+```ts
+// middleware/rateLimit.ts
+import rateLimit from 'express-rate-limit'
+
+// General API rate limit
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,          // 1 minute window
+  max: 30,                      // 30 requests per minute per IP
+  message: { error: 'Too many requests. Slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+// Stricter limit for simulate (AI calls are expensive)
+export const simulateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,                      // 10 simulations per minute per IP
+  message: { error: 'Simulation rate limit reached. Wait a moment.' },
+})
+
+// Apply in index.ts
+app.use('/api', apiLimiter)
+app.use('/api/simulate', simulateLimiter)
+```
+
+### 7.6 CORS Setup
+
+```ts
+// server/src/index.ts
+import cors from 'cors'
+
+app.use(cors({
+  origin: process.env.CLIENT_URL ?? 'http://localhost:5173',
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}))
+```
+
+### 7.7 Supabase Database Conventions
+
+```
+- All table names: plural snake_case (decisions, leaderboard_entries, habit_counts)
+- All column names: snake_case
+- Primary keys: always uuid using gen_random_uuid()
+- Foreign keys: always name as {referenced_table_singular}_id (e.g. user_id, decision_id)
+- Timestamps: created_at and updated_at on all tables, type timestamptz
+- Soft deletes: not used in MVP — hard delete is fine
+- Row Level Security: enabled on all tables — never disabled
+- All queries go through Supabase client — no raw SQL in routes
+```
+
+### 7.8 Supabase Query Conventions
+
+```ts
+// Always use the typed Supabase client with generated types (optional but preferred)
+// Always select only the columns you need — no SELECT *
+
+// WRONG
+const { data } = await supabase.from('decisions').select('*')
+
+// RIGHT
+const { data } = await supabase
+  .from('decisions')
+  .select('id, decision_text, regret_score, created_at')
+  .eq('user_id', userId)
+  .order('created_at', { ascending: false })
+  .limit(20)
+
+// Upsert pattern for habit_counts
+await supabase
+  .from('habit_counts')
+  .upsert(
+    { user_id: userId, category, count: 1 },
+    { onConflict: 'user_id,category', ignoreDuplicates: false }
+  )
+// Note: this won't increment — for increment use RPC or read-modify-write
+```
+
+### 7.9 Response Cache Convention
+
+Cache key format:
+```ts
+// Normalize decision text before creating cache key
+function normalizeDecision(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, '')   // remove punctuation
+    .replace(/\s+/g, ' ')           // collapse whitespace
+}
+
+const cacheKey = `${normalizeDecision(decision)}:${mode}`
+// e.g. "skip gym today:savage"
+// "Skip Gym Today!" and "skip gym today" resolve to same cache key
+```
+
+Cache lookup pattern:
+```ts
+// Check cache first
+const { data: cached } = await supabase
+  .from('response_cache')
+  .select('response, created_at')
+  .eq('cache_key', cacheKey)
+  .single()
+
+if (cached) {
+  const ageMs = Date.now() - new Date(cached.created_at).getTime()
+  const MAX_AGE_MS = 24 * 60 * 60 * 1000  // 24 hours
+  if (ageMs < MAX_AGE_MS) {
+    return cached.response as SimulationResult
+  }
+}
+
+// Cache miss — call Groq
+const result = await generateRegretResponse(decision, mode, repeatCount)
+
+// Save to cache (upsert — update if key exists)
+await supabase
+  .from('response_cache')
+  .upsert({ cache_key: cacheKey, response: result })
+
+return result
+```
+
+---
+
+## 8. SHARED TYPES
+
+Define all shared types once in `client/src/types/index.ts` and `server/src/types/index.ts`. Keep them in sync.
+
+```ts
+// types/index.ts
+
+export type SimulationMode = 'savage' | 'motivational' | 'reality'
+
+export type DecisionCategory =
+  | 'gym' | 'food' | 'sleep' | 'relationship'
+  | 'study' | 'work' | 'finance' | 'social' | 'other'
+
+export interface Timeline {
+  day1: string
+  week1: string
+  month1: string
+  year1: string
+}
+
+export interface SimulationResult {
+  timeline: Timeline
+  moodData: number[]          // exactly 5 values, 0-100
+  regretScore: number         // 0-100
+  aiRoast: string
+  category: DecisionCategory
+}
+
+export interface Decision {
+  id: string
+  userId: string | null
+  decisionText: string
+  personalityMode: SimulationMode
+  regretScore: number
+  timeline: Timeline
+  moodData: number[]
+  aiRoast: string
+  category: DecisionCategory
+  createdAt: string
+}
+
+export interface LeaderboardEntry {
+  id: string
+  decisionId: string
+  userId: string
+  username: string
+  decisionText: string
+  regretScore: number
+  aiRoast: string
+  skullCount: number
+  fireCount: number
+  cryCount: number
+  relateCount: number
+  createdAt: string
+}
+
+export interface Profile {
+  id: string
+  username: string
+  totalRegretScore: number
+  decisionCount: number
+  createdAt: string
+}
+
+export interface HabitBadge {
+  category: DecisionCategory
+  count: number
+  label: string             // "Certified Menace 😈"
+}
+
+export type ReactionType = 'skull' | 'fire' | 'cry' | 'relate'
+```
+
+---
+
+## 9. SCRIPTS
+
+### 9.1 package.json Scripts — Client
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext ts,tsx"
+  }
+}
+```
+
+### 9.2 package.json Scripts — Server
+
+```json
+{
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit"
+  }
+}
+```
+
+### 9.3 Development Startup Order
+
+```bash
+# 1. Start Supabase (if running locally — optional, use hosted Supabase instead)
+# 2. Start server
+cd server && pnpm dev
+
+# 3. Start client (new terminal)
+cd client && pnpm dev
+
+# Client runs at: http://localhost:5173
+# Server runs at: http://localhost:3001
+# Vite proxies /api/* to server automatically
+```
+
+---
+
+## 10. SECURITY CHECKLIST
+
+Before shipping any feature, verify:
+
+```
+☐ No secrets or API keys in client-side code
+☐ No secrets in git history
+☐ All user inputs validated and sanitized server-side
+☐ Supabase RLS enabled on all tables
+☐ Rate limiting applied to simulate and leaderboard submit routes
+☐ CORS only allows CLIENT_URL origin
+☐ Error responses never expose internal details
+☐ Leaderboard submissions limited to 3/day per user
+☐ Authorization checked on all protected routes
+☐ pnpm audit run — no high/critical vulnerabilities
+```
+
+---
+
+*Tech Rules v1.0 — Regret Engine — March 2026*
+*Stack: React 18 + TypeScript + Tailwind + Vite + Express + Supabase + Groq*

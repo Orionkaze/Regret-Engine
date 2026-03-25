@@ -1,0 +1,1574 @@
+	# Regret Engine — Design Document
+> Version 1.0 | March 2026 | Prepared for Antigravity
+
+---
+
+## Table of Contents
+
+1. [Project Overview](#1-project-overview)
+2. [Design Philosophy & Aesthetic Direction](#2-design-philosophy--aesthetic-direction)
+3. [Color System](#3-color-system)
+4. [Typography](#4-typography)
+5. [Spacing & Layout](#5-spacing--layout)
+6. [User Flows & Page Layouts](#6-user-flows--page-layouts)
+7. [Component Specs (Pixel-Perfect)](#7-component-specs-pixel-perfect)
+8. [Animations & Transitions](#8-animations--transitions)
+9. [Responsiveness](#9-responsiveness)
+10. [AI Prompt Design & Response Schema](#10-ai-prompt-design--response-schema)
+11. [Data Models & API Contracts](#11-data-models--api-contracts)
+12. [Accessibility](#12-accessibility)
+13. [Tailwind Config](#13-tailwind-config)
+14. [Component → File Mapping](#14-component--file-mapping)
+
+---
+
+## 1. Project Overview
+
+**Regret Engine** is a dark-humour AI app that simulates the consequences of bad life decisions. A user types a decision, chooses a personality mode, and receives a regret score, a brutal AI roast, a timeline of consequences, and a mood graph — all shareable as a meme card.
+
+**Stack assumptions:**
+- React + TypeScript (Vite or Next.js)
+- Tailwind CSS (with custom config — see §13)
+- Recharts for mood graph
+- Framer Motion for animations
+- Supabase for auth + database
+- Groq (or OpenAI-compatible) for AI generation
+- Google Fonts — `Inter` (display + body)
+
+---
+
+## 2. Design Philosophy & Aesthetic Direction
+
+### 2.1 Three Words
+
+> **Dramatic. Expressive. Shareable.**
+
+Every design decision maps back to these three words. If a component is quiet, timid, or forgettable — it's wrong.
+
+### 2.2 Tone
+
+The aesthetic is **dark, chaotic-good, brutally honest**. Think: a roast comedian who also has a PhD in life coaching. The UI should feel like it was built by someone who has made questionable decisions and found peace with them.
+
+### 2.3 Anti-Patterns (Never Do These)
+
+| ❌ Don't | ✅ Do Instead |
+|---|---|
+| Soft pastel gradients | High-contrast darks with purple glow |
+| Rounded corporate SaaS vibes | Sharp personality, opinionated UI |
+| Light mode | Dark only. Always. |
+| Generic neutral sans-serif layouts | Bold, heavy type, dramatic sizing |
+| Subtle quiet interactions | Every interaction has a visible reaction |
+| Pure black `#000000` backgrounds | Use `#0F0E17` — the near-black with soul |
+| Pure white `#FFFFFF` text | Use `#F8F8F2` — warm off-white |
+
+---
+
+## 3. Color System
+
+### 3.1 Core Palette
+
+```
+/* Backgrounds */
+--bg-primary:    #0F0E17   /* Deep near-black, slightly purple */
+--bg-card:       #1A1A2E   /* Elevated surface */
+--bg-hover:      #16213E   /* Interactive hover state */
+--bg-input:      #12111C   /* Form fields — darker than primary */
+
+/* Accent Purple */
+--accent:        #6B21A8   /* Primary brand, CTAs, active states */
+--accent-mid:    #7C3AED   /* Hover states on purple elements */
+--accent-light:  #A78BFA   /* Highlights, graph lines, glow */
+--accent-glow:   #A78BFA33 /* 20% opacity — box-shadows/glows only */
+
+/* Text */
+--text-primary:  #F8F8F2   /* Main body text — high contrast */
+--text-muted:    #9CA3AF   /* Secondary text, labels, metadata */
+--text-disabled: #4B5563   /* Disabled states */
+
+/* Borders */
+--border:        #2D2D44   /* Card borders, dividers */
+--border-focus:  #7C3AED   /* Focused inputs, active elements */
+
+/* Semantic */
+--success:       #10B981   /* Positive / low regret */
+--warning:       #F59E0B   /* Medium regret / cautionary */
+--danger:        #EF4444   /* High regret scores */
+--danger-dark:   #991B1B   /* Extreme regret (80+) */
+
+/* Utility */
+--skull-gray:    #6B7280   /* Muted icons, skeleton loaders */
+```
+
+### 3.2 Regret Score Color Scale
+
+Map `regretScore` (0–100) to color for badges, score rings, and timeline card borders:
+
+| Score Range | Color | Hex | Label |
+|---|---|---|---|
+| 0–20 | Green | `#10B981` | Chill King |
+| 21–40 | Lime | `#84CC16` | Minor L |
+| 41–60 | Amber | `#F59E0B` | Questionable Choices |
+| 61–80 | Red | `#EF4444` | Self-Sabotage Arc |
+| 81–100 | Dark Red | `#991B1B` | Congrats, You Played Yourself |
+
+```typescript
+// Utility function
+export function getScoreColor(score: number): string {
+  if (score <= 20) return '#10B981';
+  if (score <= 40) return '#84CC16';
+  if (score <= 60) return '#F59E0B';
+  if (score <= 80) return '#EF4444';
+  return '#991B1B';
+}
+
+export function getScoreLabel(score: number): string {
+  if (score <= 20) return 'Chill King 😌';
+  if (score <= 40) return 'Minor L 🤏';
+  if (score <= 60) return 'Questionable Choices 🤔';
+  if (score <= 80) return 'Self-Sabotage Arc 💀';
+  return 'Congrats, You Played Yourself 🪦';
+}
+```
+
+### 3.3 Personality Mode Accent Colors
+
+| Mode | Active Color | Hex |
+|---|---|---|
+| Savage | Red / Danger | `#EF4444` |
+| Motivational | Amber / Fake Warmth | `#F59E0B` |
+| Reality Check | Gray / Clinical | `#6B7280` |
+
+### 3.4 Glow Effects Reference
+
+```css
+/* Purple glow — primary CTA hover, score ring */
+box-shadow: 0 0 20px #A78BFA33;
+
+/* Danger glow — roast card, extreme scores */
+box-shadow: 0 0 20px #EF444433;
+
+/* Focus ring — all focusable inputs */
+box-shadow: 0 0 0 3px #7C3AED33;
+```
+
+---
+
+## 4. Typography
+
+### 4.1 Font
+
+```html
+<!-- In <head> -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+```
+
+```css
+font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+```
+
+### 4.2 Type Scale
+
+| Role | Size | Weight | Color | Usage |
+|---|---|---|---|---|
+| Hero title | 72px / 4.5rem | 900 | `#F8F8F2` | App name on landing |
+| Page heading | 40px / 2.5rem | 800 | `#F8F8F2` | Section titles |
+| Card heading | 28px / 1.75rem | 700 | `#F8F8F2` | Outcome card titles |
+| Score number | 56px / 3.5rem | 900 | Score color | Regret score inside ring |
+| Body large | 18px / 1.125rem | 400 | `#F8F8F2` | Outcome text, descriptions |
+| Body default | 16px / 1rem | 400 | `#F8F8F2` | General content |
+| Body small | 14px / 0.875rem | 400 | `#9CA3AF` | Metadata, timestamps |
+| Label | 12px / 0.75rem | 600 | `#9CA3AF` | Tags, badges — UPPERCASE |
+| Roast text | 20px / 1.25rem | 600 | `#F8F8F2` | AI roast line — make it pop |
+| Button text | 16px / 1rem | 600 | varies | CTA buttons |
+
+### 4.3 Typography Rules
+
+- **Headings:** Never below `font-weight: 700`. Thin headings look wrong here.
+- **Roast text:** Slightly larger, italic, distinct from body.
+- **Score numbers:** Use `font-variant-numeric: tabular-nums` so counter animation doesn't jump layout.
+- **Line height:** `1.6` body, `1.2` headings, `1.0` single-line UI.
+- **Letter spacing:** `-0.02em` on headings ≥ 40px for tighter, more impactful look.
+
+---
+
+## 5. Spacing & Layout
+
+### 5.1 Spacing Scale
+
+Use only these values. No arbitrary spacing.
+
+```
+4px   — micro (icon → label gap)
+8px   — tight (within components)
+12px  — small (related elements)
+16px  — default (standard padding/gap)
+24px  — medium (section internal padding)
+32px  — large (between components)
+48px  — xl (between page sections)
+64px  — 2xl (hero section padding)
+```
+
+### 5.2 Page Layout
+
+```
+Max content width:    1200px
+Page padding (mobile):  0 16px
+Page padding (tablet):  0 48px
+Page padding (desktop): 0 64px
+```
+
+### 5.3 Border Radii
+
+```
+16px  — cards, major containers
+12px  — inner elements, inputs, buttons
+8px   — pills, small badges
+99px  — fully rounded tags, reaction buttons
+```
+
+### 5.4 Grid System
+
+```
+Mobile  (< 640px):    1 column, full width
+Tablet  (640–1024px): 2 columns where applicable
+Desktop (> 1024px):   Max 3 columns, centered, max-width: 1200px
+```
+
+---
+
+## 6. User Flows & Page Layouts
+
+### 6.1 Full User Flow
+
+```
+Landing (/)
+    │
+    ▼
+Type decision + choose personality mode
+    │
+    ▼
+Loading state (rotating loading text)
+    │
+    ├── AI success ──────────────▶ Result page (/result)
+    │                                   │
+    └── AI fails ──▶ Fallback response  │
+                                        ▼
+                               [Share] [Submit to Leaderboard] [Try Another]
+                                        │
+                               ┌────────┴───────────┐
+                               ▼                    ▼
+                         Share card (meme)    Leaderboard (/leaderboard)
+
+Auth flow (separate):
+    Sign up / Sign in
+         │
+         ▼
+    Profile created in Supabase
+         │
+         ▼
+    Redirect to home (/)
+```
+
+### 6.2 Home Page Layout (`/`)
+
+```
+┌─────────────────────────────────────┐
+│  HEADER                             │
+│  ☠️ Regret Engine    [Sign In][Sign Up] │
+├─────────────────────────────────────┤
+│                                     │
+│         HERO SECTION                │
+│   "Regret Engine" (72px, 900w)      │
+│   tagline (18px, muted)             │
+│   ↓ scroll arrow                    │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│   DECISION INPUT CARD               │
+│   ┌─────────────────────────────┐   │
+│   │  Textarea (min 80px)        │   │
+│   │  Quick-select pills         │   │
+│   │  Personality toggle (3 btns)│   │
+│   │  [Simulate →] button        │   │
+│   └─────────────────────────────┘   │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│   LEADERBOARD PREVIEW               │
+│   "See what others regret →"        │
+│   [Card] [Card] [Card]              │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+**Hero section details:**
+- App name: `font-size: 72px`, `font-weight: 900`, centered, letter-spacing: `-0.02em`
+- Tagline: `"You type a bad decision. We tell you exactly how badly it ruins your life."`
+- Tagline color: `#9CA3AF`, size: 18px
+- Scroll arrow: subtle animated bounce ↓ below tagline
+
+### 6.3 Result Page Layout (`/result`)
+
+Elements animate in sequentially. See §8.2 for exact timing.
+
+```
+┌─────────────────────────────────────┐
+│  HEADER                             │
+├─────────────────────────────────────┤
+│                                     │
+│  DECISION ECHO                      │
+│  "You decided to:"                  │
+│  [decision text — bold]             │
+│  [Mode badge]                       │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  REGRET SCORE (centered)            │
+│  ◯ SVG ring + score number          │
+│    Score label below                │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  AI ROAST CARD                      │
+│  Full-width, dark bg, red border    │
+│  ☠️ decorative skull (opacity 0.15) │
+│  "italic roast text"                │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  OUTCOME TIMELINE                   │
+│  [Day 1 card — green border]        │
+│  [Week 1 card — amber border]       │
+│  [Month 1 card — red border]        │
+│  [Year 1 card — dark red border]    │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  MOOD GRAPH (Recharts)              │
+│  Full width, purple→red gradient    │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  ACTION ROW                         │
+│  [Share 📤] [Submit to Leaderboard] │
+│  [Try Another Decision]             │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+**Habit memory badge:** If `repeatCount >= 3`, show badge above roast card:
+```
+"You've done this 5 times 💀"
+background: #991B1B40, color: #FCA5A5, border-radius: 99px, padding: 4px 12px
+```
+
+### 6.4 Leaderboard Page Layout (`/leaderboard`)
+
+```
+Desktop (> 1024px):
+┌──────────────────┬──────────────────────────────┐
+│  SIDEBAR (240px) │  TAB BAR                     │
+│                  │  [All Time] [This Week] [Relatable] │
+│  Your stats      ├──────────────────────────────┤
+│  ─────────────   │  Entry card                  │
+│  Total Regret    │  Entry card                  │
+│  Decisions       │  Entry card                  │
+│  Top Category    │  Entry card                  │
+│                  │  Entry card                  │
+│  [Submit Yours]  │  ... (infinite scroll)       │
+└──────────────────┴──────────────────────────────┘
+
+Mobile: Sidebar collapses to a stats banner at top. Single column feed below.
+```
+
+### 6.5 Profile Page Layout (`/profile`)
+
+```
+┌─────────────────────────────────────┐
+│  PROFILE HEADER                     │
+│  [Avatar — initials] Username       │
+│  Joined: March 2026                 │
+│                                     │
+│  STATS ROW (3 cards)                │
+│  [Total Regret] [Decisions] [Top Category] │
+│                                     │
+│  BADGES ROW                         │
+│  [habit memory badges]              │
+│                                     │
+├─────────────────────────────────────┤
+│                                     │
+│  DECISION HISTORY                   │
+│  Sorted by date DESC                │
+│  Each: decision text, score badge,  │
+│  date, mode label                   │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 7. Component Specs (Pixel-Perfect)
+
+### 7.1 Header / Navbar
+
+```
+Height:      64px
+Background:  #0F0E17
+Border:      border-bottom: 1px solid #2D2D44
+Position:    sticky, top: 0, z-index: 100
+Backdrop:    backdrop-filter: blur(12px)
+
+Left:   Logo — "☠️ Regret Engine"
+        "Regret" in #A78BFA, "Engine" in #F8F8F2
+        font-size: 20px, font-weight: 800
+
+Center: Nav links (desktop only)
+        Home | Leaderboard | Profile
+        font-size: 14px, color: #9CA3AF
+        hover: color: #F8F8F2, transition: 150ms
+
+Right (logged out):
+        [Sign In] ghost button — border: 1px solid #2D2D44, color: #F8F8F2
+        [Sign Up] purple button — background: #6B21A8, color: #F8F8F2
+        Both: padding: 8px 16px, border-radius: 8px, font-weight: 600
+
+Right (logged in):
+        Avatar circle — 36px, background: #6B21A8, initials in white, font-weight: 700
+        Username — font-size: 14px, color: #F8F8F2
+        Dropdown on click: [Profile] [Sign Out]
+```
+
+### 7.2 Decision Input Card
+
+```
+Container:
+  background:    #1A1A2E
+  border:        1px solid #2D2D44
+  border-radius: 16px
+  padding:       32px
+  max-width:     720px
+  margin:        0 auto
+
+Label:
+  font-size:  12px
+  font-weight: 600
+  color:      #9CA3AF
+  text-transform: uppercase
+  letter-spacing: 0.08em
+  margin-bottom: 8px
+  content: "YOUR TERRIBLE DECISION"
+
+Textarea:
+  background:    #12111C
+  border:        1px solid #2D2D44
+  border-radius: 12px
+  padding:       16px 20px
+  font-size:     18px
+  color:         #F8F8F2
+  min-height:    80px
+  resize:        none, auto-expand via JS
+  placeholder:   "I'm thinking about quitting my job to become a DJ..."
+  placeholder color: #4B5563
+  focus:
+    border-color: #7C3AED
+    box-shadow: 0 0 0 3px #7C3AED33
+    outline: none
+  transition: border-color 150ms, box-shadow 150ms
+
+Quick-Select Pills:
+  display:   flex
+  flex-wrap: wrap
+  gap:       8px
+  margin-top: 16px
+
+  Each pill:
+    background:    #12111C
+    border:        1px solid #2D2D44
+    border-radius: 99px
+    padding:       6px 14px
+    font-size:     13px
+    color:         #9CA3AF
+    cursor:        pointer
+    transition:    all 150ms ease
+    hover:         border-color: #7C3AED, color: #A78BFA
+    selected:      background: #6B21A833, border-color: #7C3AED, color: #A78BFA
+
+  Example pills:
+    "Skip the gym 🏋️" | "Text the ex 💔" | "Quit job impulsively 💼"
+    "Invest in crypto 📉" | "One more drink 🍺" | "Ghost someone 👻"
+
+Personality Toggle:
+  margin-top: 24px
+  display: grid
+  grid-template-columns: 1fr 1fr 1fr
+  gap: 8px
+  label above: same as textarea label — "PERSONALITY MODE"
+
+  Each button:
+    background:    #12111C
+    border:        1px solid #2D2D44
+    border-radius: 10px
+    padding:       10px 16px
+    font-size:     14px
+    font-weight:   600
+    color:         #9CA3AF
+    cursor:        pointer
+    transition:    all 200ms ease
+
+  Active states:
+    Savage:       background: #EF444420, border-color: #EF4444, color: #EF4444
+    Motivational: background: #F59E0B20, border-color: #F59E0B, color: #F59E0B
+    Reality Check: background: #6B728020, border-color: #6B7280, color: #9CA3AF
+
+  Button labels:
+    "🔥 Savage" | "✨ Motivational" | "📊 Reality Check"
+
+Submit Button:
+  margin-top:    24px
+  width:         100%
+  background:    #6B21A8
+  border:        none
+  border-radius: 12px
+  padding:       16px
+  font-size:     16px
+  font-weight:   600
+  color:         #F8F8F2
+  cursor:        pointer
+  transition:    all 200ms ease
+  label:         "Simulate My Regret →"
+
+  hover:
+    background:  #7C3AED
+    box-shadow:  0 0 24px #A78BFA44
+    transform:   translateY(-1px)
+  active:
+    transform:   scale(0.98)
+  disabled/loading:
+    background:  #2D2D44
+    cursor:      not-allowed
+    transform:   none
+    box-shadow:  none
+```
+
+### 7.3 Loading State
+
+```
+Replaces submit button area while awaiting AI response.
+
+Container:
+  display: flex
+  flex-direction: column
+  align-items: center
+  gap: 16px
+  padding: 24px 0
+
+Spinner:
+  width: 36px, height: 36px
+  border: 3px solid #2D2D44
+  border-top-color: #A78BFA
+  border-radius: 50%
+  animation: spin 700ms linear infinite
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+Rotating text:
+  font-size: 15px
+  color: #9CA3AF
+  font-style: italic
+  text-align: center
+  Cycle every 1500ms with fade animation:
+
+  Messages (in order, loop):
+    "Calculating your poor choices..."
+    "Consulting the regret oracle..."
+    "This might sting a little..."
+    "Preparing your consequences..."
+
+  Fade animation:
+    @keyframes textFade {
+      0%, 100% { opacity: 0; }
+      20%, 80%: { opacity: 1; }
+    }
+    animation: textFade 1500ms ease-in-out infinite
+```
+
+### 7.4 Regret Score Component
+
+```
+Container:
+  display: flex
+  flex-direction: column
+  align-items: center
+  gap: 12px
+  margin: 32px auto
+
+SVG Ring:
+  width: 180px, height: 180px
+  viewBox: "0 0 180 180"
+
+  Track circle (background):
+    cx: 90, cy: 90, r: 80
+    stroke: #2D2D44
+    stroke-width: 10
+    fill: none
+
+  Progress arc:
+    cx: 90, cy: 90, r: 80
+    stroke: [getScoreColor(score)]
+    stroke-width: 10
+    fill: none
+    stroke-linecap: round
+    stroke-dasharray: 502        /* 2π × 80 = 502.65 */
+    stroke-dashoffset: 502 - (502 × score / 100)
+    transform: rotate(-90 90 90) /* start from top */
+    transition: stroke-dashoffset 800ms cubic-bezier(0.4, 0, 0.2, 1)
+
+Score number (centered inside ring, via absolute positioning):
+  font-size:  48px
+  font-weight: 900
+  color: [getScoreColor(score)]
+  font-variant-numeric: tabular-nums
+  Counter animation: 0 → final value, 800ms ease-out cubic
+
+Score label (below ring):
+  font-size:   16px
+  font-weight: 600
+  color: [getScoreColor(score)]
+  e.g. "Self-Sabotage Arc 💀"
+```
+
+### 7.5 AI Roast Card
+
+```
+Container:
+  background:    #1A1A2E
+  border:        1px solid #EF444444
+  border-radius: 16px
+  padding:       28px 32px
+  position:      relative
+  overflow:      hidden
+  margin-top:    24px
+
+  Decorative skull (pseudo-element / span):
+    content:   "☠️"
+    position:  absolute
+    top:       -16px
+    right:     16px
+    font-size: 64px
+    opacity:   0.15
+    pointer-events: none
+
+  Quotation mark (before roast text):
+    content:   """
+    font-size: 48px
+    color:     #EF444433
+    line-height: 1
+    display:   block
+    margin-bottom: -16px
+
+  Roast text:
+    font-size:   20px
+    font-weight: 600
+    color:       #F8F8F2
+    font-style:  italic
+    line-height: 1.5
+```
+
+### 7.6 Outcome Timeline Cards
+
+```
+Wrapper:
+  display: flex
+  flex-direction: column
+  gap: 12px
+  max-width: 700px
+  margin: 24px auto
+
+Each card:
+  background:    #1A1A2E
+  border:        1px solid #2D2D44
+  border-radius: 12px
+  padding:       20px 24px
+  display:       flex
+  gap:           16px
+  align-items:   flex-start
+
+  Left column (time label):
+    min-width:      80px
+    font-size:      12px
+    font-weight:    600
+    text-transform: uppercase
+    letter-spacing: 0.08em
+    color: [border color of that card]
+
+  Right column (outcome text):
+    font-size:   16px
+    font-weight: 400
+    color:       #F8F8F2
+    line-height: 1.6
+
+Per-card left border + label color:
+  Day 1:   border-left: 3px solid #10B981, label color: #10B981
+  Week 1:  border-left: 3px solid #F59E0B, label color: #F59E0B
+  Month 1: border-left: 3px solid #EF4444, label color: #EF4444
+  Year 1:  border-left: 3px solid #991B1B, label color: #FCA5A5
+```
+
+### 7.7 Mood Graph
+
+```
+Container:
+  background:    #1A1A2E
+  border:        1px solid #2D2D44
+  border-radius: 16px
+  padding:       24px
+  margin-top:    24px
+
+Recharts <LineChart>:
+  width: "100%"
+  height: 240px (desktop), 180px (mobile)
+
+X-Axis:
+  dataKey: label
+  data points: ["Now", "1 Week", "1 Month", "6 Months", "1 Year"]
+  tick: { fill: "#9CA3AF", fontSize: 12 }
+  axisLine: { stroke: "#2D2D44" }
+  tickLine: false
+
+Y-Axis:
+  domain: [0, 100]
+  label: "Vibes" (desktop only)
+  tick: { fill: "#9CA3AF", fontSize: 12 }
+  axisLine: false
+  tickLine: false
+
+CartesianGrid:
+  horizontal: true, vertical: false
+  stroke: "#2D2D44"
+  strokeDasharray: "4 4"
+
+Line:
+  type: "monotone"
+  dot: { fill: "#A78BFA", r: 4, strokeWidth: 0 }
+  activeDot: { r: 6, fill: "#EF4444" }
+  stroke: "url(#moodGradient)"
+  strokeWidth: 2.5
+  animationDuration: 1200
+
+SVG Gradient definition (inside chart):
+  <defs>
+    <linearGradient id="moodGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stopColor="#A78BFA" />
+      <stop offset="100%" stopColor="#EF4444" />
+    </linearGradient>
+  </defs>
+
+Tooltip:
+  contentStyle:
+    background:   "#1A1A2E"
+    border:       "1px solid #2D2D44"
+    borderRadius: "8px"
+    padding:      "8px 12px"
+  labelStyle: { color: "#F8F8F2" }
+  itemStyle:  { color: "#A78BFA" }
+```
+
+### 7.8 Leaderboard Entry Card
+
+```
+Container:
+  background:    #1A1A2E
+  border:        1px solid #2D2D44
+  border-radius: 12px
+  padding:       20px
+  margin-bottom: 12px
+  transition:    border-color 200ms, transform 200ms
+  hover:
+    border-color: #7C3AED
+    transform:    translateY(-2px)
+
+Top row (flex, space-between):
+  Left:  username — font-weight: 600, color: #F8F8F2, font-size: 15px
+  Right: Regret Score Badge (see §7.9)
+
+Decision text:
+  margin-top: 8px
+  font-size:  16px
+  color:      #F8F8F2
+  wrap in quotes: `"Skip gym for the 7th time"`
+
+AI roast snippet:
+  margin-top: 8px
+  font-size:  14px
+  font-style: italic
+  color:      #9CA3AF
+
+Reaction row:
+  margin-top:  16px
+  display:     flex
+  gap:         8px
+  align-items: center
+
+  Each reaction button:
+    background:    #12111C
+    border:        1px solid #2D2D44
+    border-radius: 99px
+    padding:       4px 12px
+    font-size:     13px
+    color:         #9CA3AF
+    cursor:        pointer
+    min-height:    36px (touch target)
+    transition:    all 150ms ease
+    hover:         border-color: #7C3AED, color: #F8F8F2
+    active/reacted: background: #6B21A820, border-color: #A78BFA, color: #A78BFA
+
+  Reactions: [💀 14] [🔥 8] [😭 22] [This is me · 47]
+```
+
+### 7.9 Regret Score Badge
+
+```
+Inline badge used in leaderboard and profile history:
+  display:      inline-flex
+  align-items:  center
+  border-radius: 99px
+  padding:      3px 10px
+  font-size:    12px
+  font-weight:  700
+
+Score → color mapping:
+  0–20:   background: #10B98120, color: #10B981
+  21–40:  background: #84CC1620, color: #84CC16
+  41–60:  background: #F59E0B20, color: #F59E0B
+  61–80:  background: #EF444420, color: #EF4444
+  81–100: background: #991B1B40, color: #FCA5A5
+```
+
+### 7.10 Skeleton Loading Cards
+
+```
+Same outer dimensions as real cards.
+
+Shimmer animation:
+  @keyframes shimmer {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.8; }
+  }
+
+Inner placeholder blocks:
+  background:    #2D2D44
+  border-radius: 4px
+  animation:     shimmer 1.5s ease-in-out infinite
+
+  Title row:    width: 120px, height: 16px
+  Body rows:    width: 100%, height: 14px — 3 rows, gap: 8px
+  Reaction row: three pills — width: 60px each, height: 28px
+
+Accessibility: aria-busy="true" on container while loading
+```
+
+### 7.11 Meme Share Card
+
+```
+Used for shareable screenshot output.
+
+Canvas / div:
+  width:         600px (fixed — for screenshot)
+  background:    #0F0E17
+  border:        1px solid #2D2D44
+  border-radius: 16px
+  padding:       32px
+  font-family:   Inter
+
+Layout:
+  Top:    "☠️ Regret Engine" branding (small, muted)
+  Middle: Decision text (large, bold)
+          Score badge
+          Roast text (italic)
+  Bottom: "regretengine.app" watermark (muted)
+
+Screenshot: use html2canvas or similar — trigger on [Share] button click
+```
+
+---
+
+## 8. Animations & Transitions
+
+### 8.1 Global Defaults
+
+```css
+/* All interactive elements */
+transition: all 200ms ease;
+
+/* Color-only transitions (performance) */
+transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+
+/* Transform transitions */
+transition: transform 200ms ease, opacity 200ms ease;
+```
+
+All animations must be wrapped:
+```css
+@media (prefers-reduced-motion: no-preference) {
+  /* animation code here */
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+### 8.2 Page Entry Animations
+
+#### Home Page
+
+| Element | Animation | Duration | Delay |
+|---|---|---|---|
+| Hero title | fade-in + translateY(24px → 0) | 600ms | 0ms |
+| Tagline | fade-in + translateY(24px → 0) | 600ms | 150ms |
+| Input card | fade-in + translateY(24px → 0) | 600ms | 300ms |
+
+#### Result Page (Sequential on load)
+
+| Element | Animation | Duration | Delay |
+|---|---|---|---|
+| Decision echo | fade-in | 300ms | 0ms |
+| Score ring draw | stroke-dashoffset animation | 800ms | 200ms |
+| Score counter | count-up 0 → value | 800ms | 200ms |
+| Roast card | fade-up (translateY 16px → 0) | 400ms | 800ms |
+| Timeline card 1 | fade-up | 300ms | 1200ms |
+| Timeline card 2 | fade-up | 300ms | 1400ms |
+| Timeline card 3 | fade-up | 300ms | 1600ms |
+| Timeline card 4 | fade-up | 300ms | 1800ms |
+| Mood graph | line draw | 1200ms | 2000ms |
+| Action row | fade-in | 300ms | 2400ms |
+
+> **Note:** Auto-scroll to regret score after 300ms delay on page load.
+
+### 8.3 Specific Animation Implementations
+
+#### Score Ring Draw (SVG)
+
+```css
+@keyframes scoreReveal {
+  from { stroke-dashoffset: 502; }
+  to   { stroke-dashoffset: var(--target-offset); }
+}
+
+.score-arc {
+  stroke-dashoffset: 502;
+  animation: scoreReveal 800ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: 200ms;
+}
+```
+
+#### Score Counter (JS)
+
+```typescript
+function countUp(
+  setter: (n: number) => void,
+  target: number,
+  duration = 800
+) {
+  const start = performance.now();
+  const update = (time: number) => {
+    const progress = Math.min((time - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+    setter(Math.round(eased * target));
+    if (progress < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+```
+
+#### Loading Text Cycle (React)
+
+```typescript
+const LOADING_MESSAGES = [
+  "Calculating your poor choices...",
+  "Consulting the regret oracle...",
+  "This might sting a little...",
+  "Preparing your consequences...",
+];
+
+// useEffect: cycle index every 1500ms
+// Render with opacity fade: keyframes 0%→1→0 over 1500ms
+```
+
+#### Personality Toggle Pulse
+
+```css
+.mode-btn:active {
+  transform: scale(0.96);
+}
+
+@keyframes gentlePulse {
+  0%, 100% { box-shadow: 0 0 8px currentColor; }
+  50%       { box-shadow: 0 0 16px currentColor; }
+}
+
+.mode-btn.active {
+  animation: gentlePulse 2s ease-in-out infinite;
+}
+```
+
+#### Submit Button
+
+```css
+.submit-btn:hover {
+  box-shadow: 0 0 24px #A78BFA44;
+  transform: translateY(-1px);
+}
+.submit-btn:active {
+  transform: scale(0.98);
+}
+```
+
+#### Reaction Button Bounce
+
+```css
+@keyframes reactBounce {
+  0%, 100% { transform: scale(1); }
+  40%       { transform: scale(1.3); }
+  70%       { transform: scale(0.9); }
+}
+
+.reaction-btn.just-reacted {
+  animation: reactBounce 300ms ease;
+}
+```
+
+#### Leaderboard Card Hover
+
+```css
+.leaderboard-card {
+  transition: border-color 200ms, transform 200ms;
+}
+.leaderboard-card:hover {
+  border-color: #7C3AED;
+  transform: translateY(-2px);
+}
+```
+
+---
+
+## 9. Responsiveness
+
+### 9.1 Breakpoints (Mobile-First)
+
+```css
+/* Base styles = mobile */
+@media (min-width: 640px)  { /* sm  — tablet portrait */ }
+@media (min-width: 768px)  { /* md  — tablet landscape */ }
+@media (min-width: 1024px) { /* lg  — desktop */ }
+@media (min-width: 1280px) { /* xl  — large desktop */ }
+```
+
+### 9.2 Component Behavior by Breakpoint
+
+#### Header
+
+| Breakpoint | Behavior |
+|---|---|
+| Mobile | Logo left, auth buttons right (no nav links) |
+| Tablet+ | Logo left, nav center, auth right |
+
+#### Hero Title Font Size
+
+| Breakpoint | Size |
+|---|---|
+| Mobile (< 640px) | 40px |
+| Tablet (640–1024px) | 56px |
+| Desktop (> 1024px) | 72px |
+
+#### Decision Input Card
+
+| Breakpoint | Behavior |
+|---|---|
+| Mobile | Full width, 16px horizontal margin, padding: 20px |
+| Tablet+ | max-width: 720px, centered, padding: 32px |
+
+#### Personality Toggle
+
+| Breakpoint | Layout |
+|---|---|
+| Mobile (≥ 380px) | 3 equal columns |
+| Mobile small (< 380px) | 1 column, stacked |
+| Tablet+ | 3 equal columns |
+
+#### Quick-Select Pills
+
+All breakpoints: `flex-wrap: wrap` — pills wrap naturally.
+Mobile: `font-size: 12px`, `padding: 5px 12px`
+
+#### Result Page
+
+| Breakpoint | Behavior |
+|---|---|
+| Mobile | Single column, full width, score ring: 140px |
+| Desktop | Score ring centered, content max-width: 800px |
+
+#### Mood Graph
+
+| Breakpoint | Height | Y-Axis Label |
+|---|---|---|
+| Mobile | 180px | Hidden |
+| Desktop | 240px | Shown |
+
+#### Leaderboard
+
+| Breakpoint | Layout |
+|---|---|
+| Mobile | Single column feed, no sidebar |
+| Tablet | Stats banner at top, single column feed |
+| Desktop | 240px sidebar + feed (two-column) |
+
+#### Outcome Timeline Cards
+
+All breakpoints: Stacked vertically. Max-width: 700px centered on desktop.
+Left border accent + time label always visible.
+
+### 9.3 Touch Interaction Rules
+
+- Minimum tap target: **44px × 44px** (Apple HIG)
+- Reaction buttons: min-height 44px via padding
+- Quick-select pills: min-height 36px
+- No hover-only interactions — all hover states must have equivalent `:focus` / tap states
+- Never use `position: fixed` on elements that conflict with mobile software keyboard
+- `overflow-x: hidden` on `body` — no horizontal scroll ever
+- All images and meme cards: `max-width: 100%`
+- Minimum font size on mobile: **14px**
+
+---
+
+## 10. AI Prompt Design & Response Schema
+
+### 10.1 System Prompt
+
+```
+You are Regret Engine — a brutally honest AI life simulator.
+Your job: given a bad decision, simulate its consequences with dark humor and uncomfortable accuracy.
+
+Rules:
+- Be specific, not generic. Reference real-life consequences.
+- The roast should sting but not be cruel beyond reason.
+- Scale severity to match the decision's actual risk level.
+- Return ONLY valid JSON. No preamble, no markdown fences.
+```
+
+### 10.2 User Prompt Template
+
+```typescript
+function buildPrompt(decision: string, mode: PersonalityMode): string {
+  const modeInstructions: Record<PersonalityMode, string> = {
+    savage: "Be mercilessly honest. No sugarcoating. Roast them hard.",
+    motivational: "Be sarcastically positive. Pretend everything will work out while clearly showing it won't.",
+    reality: "Be cold and clinical. Just the facts. No emotion. Like a doctor reading a bad diagnosis.",
+  };
+
+  return `
+The user is about to make this decision: "${decision}"
+
+Personality mode: ${mode}
+Instructions for this mode: ${modeInstructions[mode]}
+
+Respond ONLY with a JSON object matching this exact schema:
+{
+  "regretScore": <number 0-100>,
+  "scoreLabel": <string — one of: "Chill King", "Minor L", "Questionable Choices", "Self-Sabotage Arc", "Congrats, You Played Yourself">,
+  "roastText": <string — 1-2 sentences, the killer one-liner>,
+  "outcomes": {
+    "day1": <string — what happens in the first day>,
+    "week1": <string — what happens in the first week>,
+    "month1": <string — what happens in the first month>,
+    "year1": <string — where they are in a year>
+  },
+  "moodData": [
+    { "label": "Now", "vibes": <number 0-100> },
+    { "label": "1 Week", "vibes": <number 0-100> },
+    { "label": "1 Month", "vibes": <number 0-100> },
+    { "label": "6 Months", "vibes": <number 0-100> },
+    { "label": "1 Year", "vibes": <number 0-100> }
+  ],
+  "category": <string — one of: "relationships", "career", "health", "finance", "social", "lifestyle">
+}
+  `.trim();
+}
+```
+
+### 10.3 API Call
+
+```typescript
+const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "llama-3.3-70b-versatile",
+    temperature: 0.85,
+    max_tokens: 800,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user",   content: buildPrompt(decision, mode) },
+    ],
+  }),
+});
+
+const data = await response.json();
+const raw = data.choices[0].message.content;
+const result: AIResponse = JSON.parse(raw); // wrap in try/catch
+```
+
+### 10.4 Fallback Response
+
+Used when AI call fails (network error, parse error, rate limit):
+
+```typescript
+const FALLBACK_RESPONSE: AIResponse = {
+  regretScore: 69,
+  scoreLabel: "Questionable Choices",
+  roastText: "We couldn't simulate your regret — which honestly might be for the best. Some things are better left unknown.",
+  outcomes: {
+    day1: "You proceed with the decision, blissfully unaware.",
+    week1: "Reality starts to set in. Slowly.",
+    month1: "You've entered the bargaining phase.",
+    year1: "You tell people it was a 'learning experience'.",
+  },
+  moodData: [
+    { label: "Now",      vibes: 75 },
+    { label: "1 Week",   vibes: 55 },
+    { label: "1 Month",  vibes: 40 },
+    { label: "6 Months", vibes: 35 },
+    { label: "1 Year",   vibes: 50 },
+  ],
+  category: "lifestyle",
+};
+```
+
+---
+
+## 11. Data Models & API Contracts
+
+### 11.1 TypeScript Types
+
+```typescript
+// Personality modes
+export type PersonalityMode = 'savage' | 'motivational' | 'reality';
+
+// AI response shape
+export interface AIResponse {
+  regretScore: number;          // 0–100
+  scoreLabel: string;           // e.g. "Self-Sabotage Arc"
+  roastText: string;            // The killer one-liner
+  outcomes: {
+    day1: string;
+    week1: string;
+    month1: string;
+    year1: string;
+  };
+  moodData: MoodPoint[];
+  category: DecisionCategory;
+}
+
+export interface MoodPoint {
+  label: string;     // "Now" | "1 Week" | "1 Month" | "6 Months" | "1 Year"
+  vibes: number;     // 0–100
+}
+
+export type DecisionCategory =
+  | 'relationships'
+  | 'career'
+  | 'health'
+  | 'finance'
+  | 'social'
+  | 'lifestyle';
+
+// Stored decision (in Supabase)
+export interface Decision {
+  id: string;
+  userId: string | null;       // null if anonymous
+  decisionText: string;
+  mode: PersonalityMode;
+  regretScore: number;
+  scoreLabel: string;
+  roastText: string;
+  outcomes: AIResponse['outcomes'];
+  moodData: MoodPoint[];
+  category: DecisionCategory;
+  repeatCount: number;         // how many times this user has submitted this
+  isPublic: boolean;           // submitted to leaderboard?
+  createdAt: string;           // ISO timestamp
+}
+
+// Leaderboard entry (public view of Decision)
+export interface LeaderboardEntry {
+  id: string;
+  username: string;
+  decisionText: string;
+  regretScore: number;
+  scoreLabel: string;
+  roastText: string;
+  category: DecisionCategory;
+  reactions: Reactions;
+  createdAt: string;
+}
+
+export interface Reactions {
+  skull: number;   // 💀
+  fire: number;    // 🔥
+  sob: number;     // 😭
+  relatable: number; // "This is me"
+  userReacted?: keyof Reactions | null; // which one the current user picked
+}
+
+// User profile
+export interface UserProfile {
+  id: string;
+  username: string;
+  avatarInitials: string;
+  joinedAt: string;
+  totalRegretScore: number;   // sum of all decisions
+  totalDecisions: number;
+  topCategory: DecisionCategory;
+  decisions: Decision[];
+}
+```
+
+### 11.2 Supabase Table Schema
+
+```sql
+-- decisions table
+CREATE TABLE decisions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  decision_text TEXT NOT NULL,
+  mode          TEXT NOT NULL CHECK (mode IN ('savage', 'motivational', 'reality')),
+  regret_score  INTEGER NOT NULL CHECK (regret_score BETWEEN 0 AND 100),
+  score_label   TEXT NOT NULL,
+  roast_text    TEXT NOT NULL,
+  outcomes      JSONB NOT NULL,
+  mood_data     JSONB NOT NULL,
+  category      TEXT NOT NULL,
+  repeat_count  INTEGER DEFAULT 1,
+  is_public     BOOLEAN DEFAULT FALSE,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- reactions table
+CREATE TABLE reactions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  decision_id UUID REFERENCES decisions(id) ON DELETE CASCADE,
+  user_id     UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN ('skull', 'fire', 'sob', 'relatable')),
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (decision_id, user_id)   -- one reaction per user per decision
+);
+
+-- profiles table (extends auth.users)
+CREATE TABLE profiles (
+  id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  username   TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### 11.3 API Endpoints (if using Next.js API routes)
+
+```
+POST /api/simulate
+  Body:    { decision: string, mode: PersonalityMode }
+  Returns: AIResponse
+  Auth:    optional
+
+POST /api/decisions
+  Body:    { decisionId: string }  — saves to leaderboard
+  Returns: Decision
+  Auth:    required
+
+GET  /api/leaderboard?tab=alltime|week&page=1
+  Returns: { entries: LeaderboardEntry[], total: number }
+  Auth:    optional
+
+POST /api/reactions
+  Body:    { decisionId: string, type: keyof Reactions }
+  Returns: { reactions: Reactions }
+  Auth:    required
+
+GET  /api/profile/:userId
+  Returns: UserProfile
+  Auth:    required (own profile only unless public)
+```
+
+### 11.4 Habit Memory Logic
+
+```typescript
+// Before submitting to AI, check Supabase for past decisions
+async function checkRepeatCount(userId: string, decisionText: string): Promise<number> {
+  const { data } = await supabase
+    .from('decisions')
+    .select('id')
+    .eq('user_id', userId)
+    .ilike('decision_text', `%${decisionText.substring(0, 20)}%`);
+
+  return data?.length ?? 0;
+}
+
+// If repeatCount >= 3, show habit badge on result page
+// "You've done this 5 times 💀"
+```
+
+---
+
+## 12. Accessibility
+
+```
+Focus styles (all interactive elements):
+  outline:        2px solid #7C3AED
+  outline-offset: 2px
+  Use :focus-visible (not :focus — avoids mouse click outlines)
+
+Color is never the sole indicator of state:
+  Always combine with text label or icon
+
+Regret score ring:
+  aria-label="Regret score: 74 out of 100 — Self-Sabotage Arc"
+  role="img"
+
+Personality toggle:
+  role="radiogroup"
+  aria-label="Personality mode"
+  Each button: role="radio", aria-checked="true|false"
+
+Skeleton loaders:
+  aria-busy="true" on container while loading
+  aria-live="polite" to announce when content loads
+
+Loading spinner:
+  role="status"
+  aria-label="Loading your results..."
+
+Leaderboard infinite scroll:
+  Announce new content loaded with aria-live="polite"
+
+Minimum font size: 14px (mobile)
+Minimum tap target: 44px × 44px
+```
+
+---
+
+## 13. Tailwind Config
+
+```javascript
+// tailwind.config.js
+module.exports = {
+  content: ['./src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        bg: {
+          primary: '#0F0E17',
+          card:    '#1A1A2E',
+          hover:   '#16213E',
+          input:   '#12111C',
+        },
+        accent: {
+          DEFAULT:      '#6B21A8',
+          mid:          '#7C3AED',
+          light:        '#A78BFA',
+        },
+        brand: {
+          success:      '#10B981',
+          warning:      '#F59E0B',
+          danger:       '#EF4444',
+          'danger-dark':'#991B1B',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+      },
+      fontSize: {
+        'hero': ['72px', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '900' }],
+      },
+      borderRadius: {
+        card:  '16px',
+        inner: '12px',
+      },
+      boxShadow: {
+        purple: '0 0 20px #A78BFA33',
+        danger: '0 0 20px #EF444433',
+        focus:  '0 0 0 3px #7C3AED33',
+      },
+      animation: {
+        shimmer:      'shimmer 1.5s ease-in-out infinite',
+        gentlePulse:  'gentlePulse 2s ease-in-out infinite',
+        spin:         'spin 700ms linear infinite',
+        reactBounce:  'reactBounce 300ms ease',
+      },
+      keyframes: {
+        shimmer: {
+          '0%, 100%': { opacity: '0.4' },
+          '50%':      { opacity: '0.8' },
+        },
+        gentlePulse: {
+          '0%, 100%': { boxShadow: '0 0 8px #A78BFA33' },
+          '50%':      { boxShadow: '0 0 16px #A78BFA66' },
+        },
+        reactBounce: {
+          '0%, 100%': { transform: 'scale(1)' },
+          '40%':      { transform: 'scale(1.3)' },
+          '70%':      { transform: 'scale(0.9)' },
+        },
+      },
+      maxWidth: {
+        content: '1200px',
+        card:    '720px',
+        result:  '800px',
+      },
+    },
+  },
+  plugins: [],
+};
+```
+
+---
+
+## 14. Component → File Mapping
+
+| File | Covers |
+|---|---|
+| `components/Header.tsx` | §7.1 Header / Navbar |
+| `components/DecisionInput.tsx` | §7.2 Decision Input Card |
+| `components/PersonalityToggle.tsx` | §7.2 Personality Toggle, §8.3 Toggle pulse |
+| `components/LoadingState.tsx` | §7.3 Loading State |
+| `components/RegretScore.tsx` | §7.4 Score Ring + Counter |
+| `components/RoastCard.tsx` | §7.5 AI Roast Card |
+| `components/OutcomeCard.tsx` | §7.6 Timeline Cards |
+| `components/MoodGraph.tsx` | §7.7 Mood Graph |
+| `components/LeaderboardCard.tsx` | §7.8 Leaderboard Entry Card |
+| `components/ScoreBadge.tsx` | §7.9 Regret Score Badge |
+| `components/SkeletonCard.tsx` | §7.10 Skeleton Loaders |
+| `components/MemeCard.tsx` | §7.11 Share Card |
+| `pages/Home.tsx` | §6.2 Home Layout |
+| `pages/Result.tsx` | §6.3 Result Layout, §8.2 Entry animations |
+| `pages/Leaderboard.tsx` | §6.4 Leaderboard Layout |
+| `pages/Profile.tsx` | §6.5 Profile Layout |
+| `lib/ai.ts` | §10 AI prompt + API call + fallback |
+| `lib/score.ts` | `getScoreColor()`, `getScoreLabel()` |
+| `lib/supabase.ts` | Supabase client + habit memory logic |
+| `types/index.ts` | §11.1 All TypeScript types |
+| `api/simulate.ts` | `POST /api/simulate` |
+| `api/decisions.ts` | `POST /api/decisions` |
+| `api/leaderboard.ts` | `GET /api/leaderboard` |
+| `api/reactions.ts` | `POST /api/reactions` |
+| `tailwind.config.js` | §13 Full Tailwind config |
+
+---
+
+*Regret Engine Design Document v1.0 — March 2026*
+*Built for Antigravity. Ship it.*

@@ -1,0 +1,554 @@
+# Regret Engine — AI-Optimized PRD
+> Feed this entire file to your AI coding tool. It contains everything needed to scaffold and build the app.
+
+---
+
+## WHAT YOU ARE BUILDING
+
+A dark-humor web app where users input a life decision and get an AI-generated outcome timeline, a mood graph, and a Regret Score. Think: decision simulator meets roast machine meets social leaderboard.
+
+**One-liner:** "You type a bad decision. We tell you exactly how badly it ruins your life."
+
+---
+
+## TECH STACK — USE EXACTLY THIS
+
+| Layer | Technology | Cost |
+|---|---|---|
+| Frontend | React + Tailwind CSS | Free |
+| Backend | Node.js + Express | Free |
+| Database + Auth + Realtime | Supabase (PostgreSQL) | Free tier |
+| AI | Groq API — `llama-3.3-70b-versatile` | Free tier |
+| Charts | Recharts | Free |
+| Frontend hosting | Vercel | Free |
+| Backend hosting | Railway or Render | Free tier |
+| State management | Zustand | Free |
+
+**Non-negotiables:**
+- Dark mode only. No light mode. Background: `#0F0E17`
+- Mobile responsive
+- TypeScript optional but preferred
+
+> **Why Groq over OpenAI?** Groq is free (rate-limited), extremely fast (LPU inference), and its API is OpenAI-compatible so the code is nearly identical. Use model `llama-3.3-70b-versatile`.
+> **Why Supabase over MongoDB?** Supabase gives you PostgreSQL + Auth + Realtime in one free platform. No need for a separate auth service.
+
+---
+
+## GETTING YOUR FREE GROQ API KEY
+
+1. Go to **console.groq.com**
+2. Sign up (free, no credit card needed)
+3. Go to API Keys → Create API Key
+4. Copy it into your `.env` as `GROQ_API_KEY`
+
+Free tier limits: 30 requests/minute, 14,400 requests/day — plenty for development and early users.
+
+---
+
+## FOLDER STRUCTURE TO SCAFFOLD
+
+```
+regret-engine/
+├── client/                   # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── DecisionInput.tsx
+│   │   │   ├── OutcomeCard.tsx
+│   │   │   ├── MoodGraph.tsx
+│   │   │   ├── RegretScore.tsx
+│   │   │   ├── PersonalityToggle.tsx
+│   │   │   ├── LeaderboardFeed.tsx
+│   │   │   └── MemeCard.tsx
+│   │   ├── pages/
+│   │   │   ├── Home.tsx
+│   │   │   ├── Result.tsx
+│   │   │   ├── Leaderboard.tsx
+│   │   │   └── Profile.tsx
+│   │   ├── store/
+│   │   │   └── useAppStore.ts     # Zustand store
+│   │   └── lib/
+│   │       ├── api.ts             # API call helpers
+│   │       └── supabase.ts        # Supabase client init
+├── server/                   # Express backend
+│   ├── routes/
+│   │   ├── simulate.ts
+│   │   ├── leaderboard.ts
+│   │   └── user.ts
+│   ├── services/
+│   │   ├── groq.ts               # All Groq/AI logic lives here
+│   │   └── supabase.ts           # Supabase server client
+│   ├── data/
+│   │   └── fallbacks.json        # Pre-written fallback responses
+│   └── index.ts
+├── supabase/
+│   └── schema.sql                # DB schema — run this in Supabase SQL editor
+└── .env.example
+```
+
+---
+
+## SUPABASE SCHEMA
+
+Run this in the Supabase SQL editor to create all tables:
+
+```sql
+-- Users (extends Supabase auth.users)
+create table public.profiles (
+  id uuid references auth.users(id) primary key,
+  username text unique not null,
+  total_regret_score integer default 0,
+  decision_count integer default 0,
+  created_at timestamp with time zone default now()
+);
+
+-- Habit counts per user per category
+create table public.habit_counts (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade,
+  category text not null,
+  count integer default 1,
+  unique(user_id, category)
+);
+
+-- All decisions simulated
+create table public.decisions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete set null,
+  decision_text text not null,
+  personality_mode text check (personality_mode in ('savage', 'motivational', 'reality')),
+  regret_score integer check (regret_score between 0 and 100),
+  timeline jsonb not null,        -- { day1, week1, month1, year1 }
+  mood_data integer[] not null,   -- 5 values 0-100
+  ai_roast text not null,
+  category text not null,
+  created_at timestamp with time zone default now()
+);
+
+-- Leaderboard entries
+create table public.leaderboard_entries (
+  id uuid default gen_random_uuid() primary key,
+  decision_id uuid references public.decisions(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  username text not null,
+  decision_text text not null,
+  regret_score integer not null,
+  ai_roast text not null,
+  skull_count integer default 0,
+  fire_count integer default 0,
+  cry_count integer default 0,
+  relate_count integer default 0,
+  created_at timestamp with time zone default now()
+);
+
+-- Response cache (avoid duplicate Groq calls, save rate limit)
+create table public.response_cache (
+  id uuid default gen_random_uuid() primary key,
+  cache_key text unique not null,   -- normalized decision text + mode
+  response jsonb not null,
+  created_at timestamp with time zone default now()
+);
+
+-- Enable Row Level Security
+alter table public.profiles enable row level security;
+alter table public.decisions enable row level security;
+alter table public.leaderboard_entries enable row level security;
+alter table public.habit_counts enable row level security;
+
+-- Policies
+create policy "Public leaderboard read" on public.leaderboard_entries for select using (true);
+create policy "Users read own decisions" on public.decisions for select using (auth.uid() = user_id);
+create policy "Users insert own decisions" on public.decisions for insert with check (auth.uid() = user_id);
+create policy "Users read own profile" on public.profiles for select using (auth.uid() = id);
+create policy "Users update own profile" on public.profiles for update using (auth.uid() = id);
+```
+
+---
+
+## DATA MODELS (TypeScript interfaces)
+
+```ts
+interface Decision {
+  id: string
+  userId: string | null
+  decisionText: string
+  personalityMode: "savage" | "motivational" | "reality"
+  regretScore: number
+  timeline: { day1: string; week1: string; month1: string; year1: string }
+  moodData: number[]            // 5 values 0-100
+  aiRoast: string
+  category: string
+  createdAt: string
+}
+
+interface LeaderboardEntry {
+  id: string
+  decisionId: string
+  userId: string
+  username: string
+  decisionText: string
+  regretScore: number
+  aiRoast: string
+  skullCount: number
+  fireCount: number
+  cryCount: number
+  relateCount: number
+  createdAt: string
+}
+
+interface Profile {
+  id: string
+  username: string
+  totalRegretScore: number
+  decisionCount: number
+}
+```
+
+---
+
+## API ENDPOINTS — BUILD ALL OF THESE
+
+### POST `/api/simulate`
+**Auth:** optional (works for guests too)
+**Body:**
+```json
+{ "decision": "Skip gym today", "mode": "savage" }
+```
+**Response:**
+```json
+{
+  "timeline": { "day1": "...", "week1": "...", "month1": "...", "year1": "..." },
+  "moodData": [85, 70, 50, 30, 15],
+  "regretScore": 62,
+  "aiRoast": "...",
+  "category": "gym"
+}
+```
+**Logic:**
+1. Check `response_cache` for `(normalizedDecision + mode)` — if hit and < 24h old, return it.
+2. If user authenticated, fetch `habit_counts` to get `repeatCount`, else `repeatCount = 0`.
+3. Call Groq with prompt template below.
+4. Save to `decisions` table and upsert `response_cache`.
+5. If authenticated, upsert `habit_counts` and increment `profiles.total_regret_score`.
+
+---
+
+### GET `/api/leaderboard`
+**Query params:** `?tab=alltime|weekly|relatable&limit=20&page=1`
+Sort: `alltime` → regret_score DESC | `weekly` → last 7 days, regret_score DESC | `relatable` → relate_count DESC
+
+### POST `/api/leaderboard/submit`
+**Auth:** required
+**Body:** `{ decisionId: string }`
+Limit: max 3 submissions per user per day. Basic keyword filter for explicit content before inserting.
+
+### POST `/api/leaderboard/:id/react`
+**Auth:** required
+**Body:** `{ reaction: "skull" | "fire" | "cry" | "relate" }`
+Increments the relevant count column.
+
+### GET `/api/user/stats`
+**Auth:** required
+Returns profile + habit counts + badge eligibility.
+
+### GET `/api/health`
+Returns `{ status: "ok" }`
+
+---
+
+## GROQ INTEGRATION — `server/services/groq.ts`
+
+```bash
+npm install groq-sdk
+```
+
+```ts
+import Groq from "groq-sdk"
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+
+const systemPrompts = {
+  savage: `You are a brutally honest, sarcastic life coach who roasts people's bad decisions with dark humor.
+You speak like a disappointed older sibling who has seen everything. Never sugarcoat.
+Tone: savage, funny, PG-13 max. No slurs or genuinely harmful content.
+IMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation, no extra text whatsoever.`,
+
+  motivational: `You are an aggressively positive life coach whose optimism becomes unhinged as consequences mount.
+Day 1 you're cheering. By Year 1 you're clearly in denial. The humor is in the contrast.
+Tone: fake-positive, ironic, darkly funny.
+IMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation, no extra text whatsoever.`,
+
+  reality: `You are a calm, clinical analyst. No jokes. Cold, factual consequences only.
+Use data, percentages, and medical/psychological terminology where relevant.
+Tone: dry, factual, slightly ominous.
+IMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation, no extra text whatsoever.`
+}
+
+const buildUserPrompt = (decision: string, repeatCount: number) => `
+Decision: "${decision}"
+Times this category of decision has been made before: ${repeatCount}
+
+Respond ONLY with this exact JSON:
+{
+  "timeline": {
+    "day1": "1-2 sentences",
+    "week1": "1-2 sentences",
+    "month1": "1-2 sentences",
+    "year1": "1-2 sentences"
+  },
+  "moodData": [number, number, number, number, number],
+  "regretScore": number,
+  "aiRoast": "one punchy line",
+  "category": "gym|food|sleep|relationship|study|work|finance|social|other"
+}
+
+Rules:
+- moodData: 5 integers 0-100. Generally declining. Savage = steep cliff. Motivational = small rise then crash. Reality = steady slope down.
+- regretScore: integer 0-100. Use the full range creatively — not everything is 55-70.
+- If repeatCount >= 3, call it out directly in aiRoast. Escalate the intensity with each threshold.
+- aiRoast = the single most devastating or funniest line. Make it memorable.
+`
+
+export async function generateRegretResponse(
+  decision: string,
+  mode: "savage" | "motivational" | "reality",
+  repeatCount: number
+) {
+  try {
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: systemPrompts[mode] },
+        { role: "user", content: buildUserPrompt(decision, repeatCount) }
+      ],
+      temperature: 0.85,
+      max_tokens: 600,
+    })
+
+    const raw = completion.choices[0].message.content ?? ""
+    const cleaned = raw.replace(/```json|```/g, "").trim()
+    const parsed = JSON.parse(cleaned)
+
+    // Validate required fields
+    if (!parsed.timeline || !parsed.moodData || parsed.regretScore === undefined) {
+      throw new Error("Invalid response shape from Groq")
+    }
+
+    return parsed
+  } catch (err) {
+    console.error("Groq error, using fallback:", err)
+    return getFallbackResponse(mode)   // implement using fallbacks.json
+  }
+}
+```
+
+---
+
+## SUPABASE CLIENT SETUP
+
+### Client (`client/src/lib/supabase.ts`)
+```ts
+import { createClient } from "@supabase/supabase-js"
+
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+)
+```
+
+### Auth — use Supabase built-in, no external auth service needed
+```ts
+// Email signup
+await supabase.auth.signUp({ email, password })
+
+// Email login
+await supabase.auth.signInWithPassword({ email, password })
+
+// Google OAuth (one line)
+await supabase.auth.signInWithOAuth({ provider: "google" })
+
+// Sign out
+await supabase.auth.signOut()
+
+// Get current user
+const { data: { user } } = await supabase.auth.getUser()
+```
+
+---
+
+## FRONTEND COMPONENTS — DETAILED SPEC
+
+### `<DecisionInput />`
+- Large dark text field, placeholder: *"What terrible decision are you about to make...?"*
+- Quick-select pill buttons: `"Skip gym"` `"Text my ex"` `"Start coding at 2AM"` `"Eat instant noodles again"` `"Pull an all-nighter"` `"Ghost someone"` `"One more reel"`
+- `<PersonalityToggle />`: three buttons — **Savage** / **Motivational** / **Reality Check**. Default: Savage. Active = glowing purple border.
+- Submit: **"Simulate the Regret"** — large, purple, full width on mobile.
+- Loading state: cycle through `"Calculating your poor choices..."` → `"Consulting the regret oracle..."` → `"This might sting a little..."`
+
+### `<OutcomeCard />`
+- Four stacked cards: Day 1 / Week 1 / Month 1 / Year 1
+- Each card: emoji, time label, outcome text
+- Staggered animation in (200ms delay between each)
+- Visual intensity increases per card: Day 1 = muted gray tones → Year 1 = red/warning
+
+### `<MoodGraph />`
+- Recharts `LineChart`
+- X-axis: `["Now", "1 Week", "1 Month", "6 Months", "1 Year"]`
+- Y-axis: 0–100, label "Vibes"
+- Line: purple → red gradient as values drop
+- Animate on mount
+
+### `<RegretScore />`
+- Circular SVG progress ring, fills on mount over 800ms ease-out
+- Number counts up using requestAnimationFrame
+- Labels: 0–20 "Chill King 👑" | 21–40 "Minor L 😬" | 41–60 "Questionable Choices 🤔" | 61–80 "Self-Sabotage Arc 💀" | 81–100 "Congrats, You Played Yourself ☠️"
+
+### `<LeaderboardFeed />`
+- Tabs: **All Time** / **This Week** / **Most Relatable**
+- Each card: decision text, regret score badge, AI roast, reactions (💀 🔥 😭), "This is me" count
+- Infinite scroll, skeleton loading state
+
+---
+
+## HABIT MEMORY SYSTEM
+
+```ts
+// After Groq responds in simulate route:
+const escalationSuffix: Record<number, string> = {
+  3:  "Third time. We're noticing a pattern.",
+  5:  "Fifth time. This isn't a mistake anymore — it's a lifestyle.",
+  7:  "Seventh time. You are being scientifically studied.",
+  10: "Tenth time. You've transcended bad decisions into a philosophical stance.",
+}
+
+const threshold = [10, 7, 5, 3].find(t => repeatCount >= t)
+if (threshold) {
+  response.aiRoast += ` ${escalationSuffix[threshold]}`
+}
+
+// Upsert habit_counts after:
+// INSERT INTO habit_counts (user_id, category, count) VALUES ($1, $2, 1)
+// ON CONFLICT (user_id, category) DO UPDATE SET count = habit_counts.count + 1
+```
+
+Profile badge labels:
+- 3x → "Repeat Offender 🔁"
+- 5x → "Certified Menace 😈"
+- 7x → "Training for Disappointment Olympics 🏅"
+- 10x → "Legendary Bad Decision Energy 👑💀"
+
+---
+
+## UI DESIGN TOKENS
+
+```css
+--bg-primary: #0F0E17;
+--bg-card: #1A1A2E;
+--bg-card-hover: #16213E;
+--accent-purple: #6B21A8;
+--accent-purple-light: #A78BFA;
+--accent-red: #EF4444;
+--text-primary: #F8F8F2;
+--text-muted: #9CA3AF;
+--border: #2D2D44;
+--success: #10B981;
+--warning: #F59E0B;
+```
+
+Font: `Inter` (Google Fonts). Headings weight 700–900. Big, dramatic sizing — this is not a boring app.
+
+---
+
+## ENV VARIABLES
+
+```env
+# server/.env
+GROQ_API_KEY=           # console.groq.com — free, no card needed
+SUPABASE_URL=           # Supabase project Settings → API
+SUPABASE_SERVICE_KEY=   # service_role key (server only, never expose to frontend)
+CLIENT_URL=http://localhost:5173
+PORT=3001
+
+# client/.env
+VITE_SUPABASE_URL=      # same URL as above
+VITE_SUPABASE_ANON_KEY= # anon/public key (safe to expose)
+```
+
+---
+
+## PHASE 1 — BUILD THIS FIRST, NOTHING ELSE
+
+- [ ] Decision input + Groq simulation
+- [ ] Outcome timeline display
+- [ ] Mood graph (Recharts)
+- [ ] Regret score with animation
+- [ ] Personality mode toggle
+- [ ] Supabase auth (email + Google OAuth)
+- [ ] Decision history saved to Supabase
+- [ ] Habit memory system
+- [ ] Response caching in Supabase
+- [ ] Profile page with stats + badges
+- [ ] Dark UI with Tailwind
+
+## PHASE 2 — AFTER PHASE 1 IS SOLID
+
+- [ ] Public leaderboard with three tabs
+- [ ] Submit to leaderboard + abuse limits
+- [ ] Reaction system (💀 🔥 😭)
+- [ ] "This is me" count
+- [ ] Shareable meme card (html-to-image)
+- [ ] Realtime leaderboard via Supabase Realtime
+
+## DO NOT BUILD YET
+
+- Chrome extension
+- Mobile push notifications
+- Light mode (never, not once, not ever)
+- Monetisation
+
+---
+
+## FALLBACK RESPONSES (`server/data/fallbacks.json`)
+
+Used when Groq fails or hits rate limits. Add at least 2 per category.
+
+```json
+{
+  "gym": [{
+    "regretScore": 55,
+    "timeline": {
+      "day1": "You feel rested. Suspiciously rested.",
+      "week1": "You've missed three now. The gym doesn't even text anymore.",
+      "month1": "You've started calling it 'active rest month'.",
+      "year1": "You refer to your gym phase as 'a different era'."
+    },
+    "moodData": [80, 65, 45, 30, 25],
+    "aiRoast": "Your gym bag has started collecting dust as a personality trait.",
+    "category": "gym"
+  }],
+  "relationship": [{
+    "regretScore": 78,
+    "timeline": {
+      "day1": "Sent. The delivered tick just spiked your cortisol.",
+      "week1": "You are now in an undefined situationship with no exit strategy.",
+      "month1": "Your friends have stopped asking. They know.",
+      "year1": "This text defined an era. An era with a name."
+    },
+    "moodData": [70, 55, 40, 35, 30],
+    "aiRoast": "Your phone's autocorrect tried to save you. You overrode it manually.",
+    "category": "relationship"
+  }]
+}
+```
+
+---
+
+## THINGS TO HANDLE IN CODE
+
+1. **Groq JSON parsing** — strip ` ```json ``` ` fences before `JSON.parse()`. Always wrap in try/catch. Fall back to `fallbacks.json` on any error.
+2. **Groq rate limits** — cache aggressively. Same normalized decision + mode = serve cache, never hit Groq again for 24h.
+3. **Supabase RLS** — test that users can only access their own data. The schema includes policies but verify after setup.
+4. **Leaderboard spam** — before inserting, count user's `leaderboard_entries` in last 24h. If >= 3, reject with 429.
+
+---
+
+*PRD v1.1 — Stack: React + Tailwind + Node/Express + Supabase + Groq (free) — March 2026*
