@@ -1,14 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toPng } from 'html-to-image';
 import { useAppStore } from '../store/useAppStore';
 import { RegretScore } from '../components/RegretScore';
 import { RoastCard } from '../components/RoastCard';
 import { OutcomeCard } from '../components/OutcomeCard';
 import { MoodGraph } from '../components/MoodGraph';
+import { MemeCard } from '../components/MemeCard';
 
 export function Result() {
   const navigate = useNavigate();
   const { decision, mode, simulationResult, clearResult } = useAppStore();
+  const memeRef = useRef<HTMLDivElement>(null);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     if (!simulationResult) {
@@ -16,11 +20,35 @@ export function Result() {
     }
   }, [simulationResult, navigate]);
 
+  const handleShare = async () => {
+    if (!memeRef.current) return;
+    setSharing(true);
+    try {
+      const dataUrl = await toPng(memeRef.current, { quality: 1.0, pixelRatio: 1 });
+      const link = document.createElement('a');
+      link.download = `regret-decision.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to generate image', err);
+      alert('Failed to generate sharing image.');
+    } finally {
+      setSharing(false);
+    }
+  };
+
   if (!simulationResult) return null;
 
   return (
-    <div className="max-w-[800px] w-full mx-auto px-4 pb-24 flex flex-col items-center">
+    <div className="max-w-[800px] w-full mx-auto px-4 pb-24 flex flex-col items-center relative overflow-hidden">
       
+      <MemeCard 
+        ref={memeRef} 
+        decision={decision} 
+        score={simulationResult.regretScore} 
+        roast={simulationResult.roastText} 
+      />
+
       {/* Decision Echo */}
       <div className="text-center mt-12 mb-8 opacity-0 animate-[fadeIn_300ms_ease-out_forwards]">
         <p className="text-sm font-semibold tracking-widest text-text-muted uppercase mb-3">
@@ -54,12 +82,11 @@ export function Result() {
       {/* Action Row */}
       <div className="flex flex-wrap justify-center items-center gap-4 mt-16 opacity-0 animate-[fadeIn_300ms_ease-out_2400ms_forwards]">
         <button 
-          className="bg-bg-input border border-border text-text-primary px-6 py-3 rounded-lg font-semibold hover:bg-hover hover:border-accent-light transition-all shadow-md active:scale-95"
-          onClick={() => {
-            alert('Meme generator to be implemented in Phase 2!');
-          }}
+          disabled={sharing}
+          className="flex items-center gap-2 bg-bg-input border border-border text-text-primary px-6 py-3 rounded-lg font-semibold hover:bg-hover hover:border-accent-light transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={handleShare}
         >
-          Share 📤
+          {sharing ? 'Generating...' : 'Save & Share 📸'}
         </button>
         <button 
           className="bg-accent text-text-primary px-6 py-3 rounded-lg font-semibold hover:bg-accent-mid hover:shadow-purple transition-all shadow-md active:scale-95"

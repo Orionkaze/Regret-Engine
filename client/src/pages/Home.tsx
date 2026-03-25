@@ -7,7 +7,7 @@ import { LoadingState } from '../components/LoadingState';
 
 export function Home() {
   const navigate = useNavigate();
-  const { decision, setDecision, mode, setMode, setSimulationResult } = useAppStore();
+  const { decision, setDecision, mode, setMode, setSimulationResult, user } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +15,7 @@ export function Home() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await api.simulate(decision, mode);
+      const result = await api.simulate(decision, mode, user?.id);
       setSimulationResult(result);
       navigate('/result');
     } catch (err: any) {

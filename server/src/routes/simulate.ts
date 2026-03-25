@@ -69,7 +69,8 @@ router.post('/', simulateLimiter, async (req, res) => {
       outcomes: result.outcomes,
       mood_data: result.moodData,
       category: result.category,
-      repeat_count: repeatCount + 1
+      repeat_count: repeatCount + 1,
+      is_public: true
     };
 
     const { error: insertError } = await supabase.from('decisions').insert(dbPayload);

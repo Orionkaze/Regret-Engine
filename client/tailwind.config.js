@@ -17,6 +17,8 @@ export default {
         shimmer: { '0%, 100%': { opacity: '0.4' }, '50%': { opacity: '0.8' } },
         gentlePulse: { '0%, 100%': { boxShadow: '0 0 8px #A78BFA33' }, '50%': { boxShadow: '0 0 16px #A78BFA66' } },
         reactBounce: { '0%, 100%': { transform: 'scale(1)' }, '40%': { transform: 'scale(1.3)' }, '70%': { transform: 'scale(0.9)' } },
+        fadeUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
       },
       maxWidth: { content: '1200px', card: '720px', result: '800px' },
     },

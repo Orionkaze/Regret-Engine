@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import simulateRouter from './routes/simulate';
 import userRouter from './routes/user';
+import leaderboardRouter from './routes/leaderboard';
 
 dotenv.config();
 
@@ -34,6 +35,7 @@ app.use('/api', apiLimiter);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/simulate', simulateRouter);
 app.use('/api/user', userRouter);
+app.use('/api/leaderboard', leaderboardRouter);
 
 app.listen(PORT, () => {
   console.log(`🚀 Regret Engine Server running on port ${PORT}`);
